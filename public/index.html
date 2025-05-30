@@ -2,19 +2,529 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Video Hosting</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="stylesheet" href="style.css" />
+    <title>Video Hosting Platform</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Oxygen, Ubuntu, Cantarell, sans-serif;
+        background: linear-gradient(
+          135deg,
+          #0f0f23 0%,
+          #1a1a2e 50%,
+          #16213e 100%
+        );
+        color: #e5e7eb;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 1rem;
+        line-height: 1.6;
+      }
+
+      .container {
+        width: 100%;
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+
+      h1 {
+        color: #ffffff;
+        text-align: center;
+        font-size: 2.5rem;
+        font-weight: 700;
+        margin-bottom: 2rem;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background-clip: text;
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        text-shadow: 0 0 30px rgba(102, 126, 234, 0.3);
+      }
+
+      h2 {
+        color: #f3f4f6;
+        font-size: 1.8rem;
+        font-weight: 600;
+        margin-bottom: 1.5rem;
+        text-align: center;
+      }
+
+      #uploadForm {
+        background: rgba(31, 41, 55, 0.8);
+        backdrop-filter: blur(20px);
+        border: 1px solid rgba(75, 85, 99, 0.3);
+        padding: 2rem;
+        border-radius: 20px;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        margin-bottom: 3rem;
+        transition: all 0.3s ease;
+        max-width: 800px;
+        margin-left: auto;
+        margin-right: auto;
+      }
+
+      #uploadForm:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 32px 64px -12px rgba(0, 0, 0, 0.6);
+      }
+
+      input[type="file"],
+      input[type="password"],
+      input[type="text"] {
+        width: 100%;
+        padding: 1rem 1.25rem;
+        margin-bottom: 1.5rem;
+        background: rgba(17, 24, 39, 0.8);
+        border: 2px solid rgba(75, 85, 99, 0.4);
+        border-radius: 12px;
+        color: #f9fafb;
+        font-size: 1rem;
+        transition: all 0.3s ease;
+        outline: none;
+      }
+
+      input[type="file"]:focus,
+      input[type="password"]:focus,
+      input[type="text"]:focus {
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        background: rgba(17, 24, 39, 0.9);
+      }
+
+      input::placeholder {
+        color: #9ca3af;
+      }
+
+      input[type="file"] {
+        padding: 1.25rem;
+        cursor: pointer;
+        background: rgba(55, 65, 81, 0.6);
+        border: 2px dashed rgba(102, 126, 234, 0.4);
+        text-align: center;
+        position: relative;
+        overflow: hidden;
+      }
+
+      input[type="file"]:hover {
+        border-color: #667eea;
+        background: rgba(55, 65, 81, 0.8);
+      }
+
+      .input-error {
+        border-color: #ef4444 !important;
+        box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1) !important;
+        background: rgba(17, 24, 39, 0.9) !important;
+      }
+
+      button {
+        width: 100%;
+        padding: 1rem 2rem;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 12px;
+        font-size: 1.1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      button::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(
+          90deg,
+          transparent,
+          rgba(255, 255, 255, 0.2),
+          transparent
+        );
+        transition: left 0.5s;
+      }
+
+      button:hover::before {
+        left: 100%;
+      }
+
+      button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 20px 40px -12px rgba(102, 126, 234, 0.4);
+      }
+
+      button:disabled {
+        background: linear-gradient(135deg, #4b5563 0%, #6b7280 100%);
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
+      }
+
+      button:disabled::before {
+        display: none;
+      }
+
+      #progress-container {
+        width: 100%;
+        background: rgba(17, 24, 39, 0.8);
+        height: 8px;
+        border-radius: 10px;
+        overflow: hidden;
+        margin-bottom: 1.5rem;
+        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+      }
+
+      #progress-bar {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, #667eea, #764ba2);
+        transition: width 0.3s ease;
+        border-radius: 10px;
+        box-shadow: 0 0 20px rgba(102, 126, 234, 0.5);
+      }
+
+      #status {
+        margin-bottom: 1.5rem;
+        padding: 1rem 1.25rem;
+        border-radius: 12px;
+        font-weight: 600;
+        display: none;
+        text-align: center;
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .status-processing {
+        background: linear-gradient(
+          135deg,
+          rgba(245, 158, 11, 0.2),
+          rgba(217, 119, 6, 0.2)
+        );
+        color: #fbbf24;
+        border-color: rgba(245, 158, 11, 0.3);
+      }
+
+      .status-success {
+        background: linear-gradient(
+          135deg,
+          rgba(34, 197, 94, 0.2),
+          rgba(21, 128, 61, 0.2)
+        );
+        color: #4ade80;
+        border-color: rgba(34, 197, 94, 0.3);
+      }
+
+      .status-error {
+        background: linear-gradient(
+          135deg,
+          rgba(239, 68, 68, 0.2),
+          rgba(185, 28, 28, 0.2)
+        );
+        color: #f87171;
+        border-color: rgba(239, 68, 68, 0.3);
+      }
+
+      #videos {
+        background: rgba(31, 41, 55, 0.8);
+        backdrop-filter: blur(20px);
+        border: 1px solid rgba(75, 85, 99, 0.3);
+        border-radius: 20px;
+        padding: 2rem;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+      }
+
+      #videoList {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        gap: 1.5rem;
+        margin-top: 1.5rem;
+      }
+
+      .video-item {
+        background: rgba(17, 24, 39, 0.6);
+        border: 1px solid rgba(75, 85, 99, 0.3);
+        border-radius: 16px;
+        overflow: hidden;
+        transition: all 0.3s ease;
+        cursor: pointer;
+        position: relative;
+      }
+
+      .video-item:hover {
+        background: rgba(17, 24, 39, 0.8);
+        border-color: #667eea;
+        transform: translateY(-5px);
+        box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.4);
+      }
+
+      .video-thumbnail {
+        width: 100%;
+        height: 180px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .video-thumbnail img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transition: transform 0.3s ease;
+      }
+
+      .video-item:hover .video-thumbnail img {
+        transform: scale(1.05);
+      }
+
+      .video-thumbnail .placeholder {
+        font-size: 3rem;
+        color: rgba(255, 255, 255, 0.7);
+        text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+      }
+
+      .play-overlay {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(0, 0, 0, 0.7);
+        border-radius: 50%;
+        width: 60px;
+        height: 60px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 1.5rem;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+        backdrop-filter: blur(5px);
+      }
+
+      .video-item:hover .play-overlay {
+        opacity: 1;
+      }
+
+      .video-info {
+        padding: 1.25rem;
+      }
+
+      .video-title {
+        color: #e5e7eb;
+        text-decoration: none;
+        font-weight: 600;
+        font-size: 1rem;
+        line-height: 1.4;
+        display: block;
+        word-break: break-word;
+        transition: color 0.3s ease;
+      }
+
+      .video-title:hover {
+        color: #667eea;
+      }
+
+      .no-videos {
+        text-align: center;
+        color: #9ca3af;
+        font-style: italic;
+        padding: 3rem;
+        font-size: 1.2rem;
+        background: rgba(17, 24, 39, 0.3);
+        border-radius: 12px;
+        border: 2px dashed rgba(75, 85, 99, 0.3);
+      }
+
+      #notification {
+        background: linear-gradient(
+          135deg,
+          rgba(34, 197, 94, 0.9),
+          rgba(21, 128, 61, 0.9)
+        );
+        color: white;
+        padding: 1rem 1.25rem;
+        margin: 1rem 0;
+        border-radius: 12px;
+        display: none;
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        text-align: center;
+        font-weight: 500;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 1000;
+        max-width: 400px;
+      }
+
+      .notification-error {
+        background: linear-gradient(
+          135deg,
+          rgba(239, 68, 68, 0.9),
+          rgba(185, 28, 28, 0.9)
+        ) !important;
+      }
+
+      .notification-auth-error {
+        background: linear-gradient(
+          135deg,
+          rgba(239, 68, 68, 0.95),
+          rgba(185, 28, 28, 0.95)
+        ) !important;
+        border: 2px solid rgba(239, 68, 68, 0.6) !important;
+        animation: shake 0.5s ease-in-out;
+      }
+
+      @keyframes shake {
+        0%,
+        20%,
+        40%,
+        60%,
+        80%,
+        100% {
+          transform: translateX(0);
+        }
+        10%,
+        30%,
+        50%,
+        70%,
+        90% {
+          transform: translateX(-5px);
+        }
+      }
+
+      /* Responsive Design */
+      @media (max-width: 768px) {
+        body {
+          padding: 0.5rem;
+        }
+
+        h1 {
+          font-size: 2rem;
+          margin-bottom: 1.5rem;
+        }
+
+        h2 {
+          font-size: 1.5rem;
+          margin-bottom: 1rem;
+        }
+
+        #uploadForm,
+        #videos {
+          padding: 1.5rem;
+          border-radius: 16px;
+          margin-bottom: 2rem;
+        }
+
+        input[type="file"],
+        input[type="password"],
+        input[type="text"] {
+          padding: 0.875rem 1rem;
+          margin-bottom: 1.25rem;
+          font-size: 16px;
+        }
+
+        button {
+          padding: 0.875rem 1.5rem;
+          font-size: 1rem;
+        }
+
+        #videoList {
+          grid-template-columns: 1fr;
+          gap: 1rem;
+        }
+
+        .video-thumbnail {
+          height: 200px;
+        }
+
+        .video-info {
+          padding: 1rem;
+        }
+
+        .video-title {
+          font-size: 0.9rem;
+        }
+
+        #notification {
+          right: 10px;
+          left: 10px;
+          max-width: none;
+        }
+      }
+
+      @media (max-width: 480px) {
+        h1 {
+          font-size: 1.75rem;
+        }
+
+        #uploadForm,
+        #videos {
+          padding: 1.25rem;
+          border-radius: 12px;
+        }
+
+        input[type="file"],
+        input[type="password"],
+        input[type="text"] {
+          padding: 0.75rem;
+          margin-bottom: 1rem;
+        }
+
+        button {
+          padding: 0.75rem 1.25rem;
+        }
+
+        .video-thumbnail {
+          height: 160px;
+        }
+      }
+
+      ::-webkit-scrollbar {
+        width: 8px;
+      }
+
+      ::-webkit-scrollbar-track {
+        background: rgba(17, 24, 39, 0.5);
+      }
+
+      ::-webkit-scrollbar-thumb {
+        background: rgba(102, 126, 234, 0.6);
+        border-radius: 4px;
+      }
+
+      ::-webkit-scrollbar-thumb:hover {
+        background: rgba(102, 126, 234, 0.8);
+      }
+    </style>
   </head>
   <body>
     <div class="container">
-      <h1>🎥 Video Hosting</h1>
+      <h1>🎥 Video Hosting Platform</h1>
+
       <div id="notification"></div>
+
       <form id="uploadForm">
         <input
           type="password"
           id="password"
-          placeholder="🔐 Password"
+          placeholder="🔐 Enter Password"
           required
         />
         <input
@@ -30,8 +540,8 @@
           placeholder="📝 Custom name (optional)"
         />
         <div id="status"></div>
-        <div id="progress-container">
-          <div id="progress-bar" style="width: 0%"></div>
+        <div id="progress-container" style="display: none">
+          <div id="progress-bar"></div>
         </div>
         <button type="submit" id="submitBtn">
           <span>📤 Upload Video</span>
@@ -55,8 +565,8 @@
       const submitBtn = document.getElementById("submitBtn");
       const videoFileInput = document.getElementById("videoFile");
 
-      let currentProcessedFilename = null; // Para guardar el nombre del archivo procesado para renombrar
-      let sseEventSource = null; // Para la conexión SSE
+      let currentProcessedFilename = null;
+      let sseEventSource = null;
 
       function handleAuthError(errorType, message) {
         passwordInput.classList.remove("input-error");
@@ -73,9 +583,9 @@
         progressBar.style.width = "0%";
         progressBar.style.background =
           "linear-gradient(90deg, #667eea, #764ba2)";
-        progressContainer.style.display = "none"; // Ocultar barra al inicio y fin
+        progressContainer.style.display = "none";
         hideStatus();
-        form.reset(); // Esto también limpia el input de archivo
+        form.reset();
         customNameInput.value = "";
         currentProcessedFilename = null;
         if (sseEventSource) {
@@ -83,9 +593,6 @@
           sseEventSource = null;
         }
       }
-
-      // Inicialmente ocultar la barra de progreso
-      progressContainer.style.display = "none";
 
       form.addEventListener("submit", async (e) => {
         e.preventDefault();
@@ -97,11 +604,11 @@
 
         submitBtn.disabled = true;
         submitBtn.innerHTML = "<span>⏳ Preparing...</span>";
-        progressContainer.style.display = "block"; // Mostrar barra
+        progressContainer.style.display = "block";
         progressBar.style.width = "0%";
         progressBar.style.background =
-          "linear-gradient(90deg, #667eea, #764ba2)"; // Reset color
-        showStatus("Starting upload...", "info");
+          "linear-gradient(90deg, #667eea, #764ba2)";
+        showStatus("Starting upload...", "processing");
         currentProcessedFilename = null;
         if (sseEventSource) sseEventSource.close();
 
@@ -161,25 +668,23 @@
             }
 
             if (response.success && response.taskId) {
-              // Si el servidor indica que el archivo ya fue movido directamente
               if (
                 response.message === "Upload received, file moved directly."
               ) {
-                currentProcessedFilename = response.filename || file.name; // Asegúrate de que el backend envíe 'filename' en este caso.
+                currentProcessedFilename = response.filename || file.name;
                 showStatus("Upload complete. File moved directly.", "success");
                 showNotification(`✅ ${response.message}`);
                 progressBar.style.width = "100%";
                 progressBar.style.background = "#22c55e";
-                handleRenameAndFinalize(); // Ir directamente a renombrar/finalizar
-                return; // Importante para no seguir con SSE
+                handleRenameAndFinalize();
+                return;
               }
 
-              // Si no fue un movimiento directo, proceder con SSE
               showStatus(
                 "Upload complete. Initializing processing...",
                 "processing"
               );
-              progressBar.style.width = "100%"; // Upload visualmente completo
+              progressBar.style.width = "100%";
 
               sseEventSource = new EventSource(
                 `/processing-status/${response.taskId}`
@@ -187,7 +692,6 @@
 
               sseEventSource.onmessage = function (event) {
                 const progressData = JSON.parse(event.data);
-                // console.log("SSE Data:", progressData);
 
                 if (progressData.stage === "probing") {
                   showStatus(
@@ -223,7 +727,6 @@
                   progressBar.style.width = "100%";
                   progressBar.style.background = "#22c55e";
                   sseEventSource.close();
-
                   handleRenameAndFinalize();
                 } else if (progressData.stage === "error") {
                   showStatus(
@@ -382,25 +885,76 @@
           if (!res.ok) {
             throw new Error(`Failed to load videos: ${res.statusText}`);
           }
-          const files = await res.json();
+          const videos = await res.json();
           const container = document.getElementById("videoList");
-          container.innerHTML = "";
 
-          if (files.length === 0) {
+          if (videos.length === 0) {
             container.innerHTML =
-              "<p style='text-align: center; color: #9ca3af; font-style: italic;'>📂 No videos available</p>";
+              '<div class="no-videos">📂 No videos uploaded yet</div>';
             return;
           }
 
-          files.forEach((file) => {
-            const div = document.createElement("div");
-            div.className = "video-name";
-            const link = document.createElement("a");
-            link.href = `/video/${encodeURIComponent(file)}`;
-            link.target = "_blank";
-            link.innerHTML = `🎬 ${file}`;
-            div.appendChild(link);
-            container.appendChild(div);
+          container.innerHTML = "";
+
+          videos.forEach((video) => {
+            const videoItem = document.createElement("div");
+            videoItem.className = "video-item";
+
+            const thumbnailDiv = document.createElement("div");
+            thumbnailDiv.className = "video-thumbnail";
+
+            // Create play overlay
+            const playOverlay = document.createElement("div");
+            playOverlay.className = "play-overlay";
+            playOverlay.innerHTML = "▶️";
+
+            if (video.thumbnail) {
+              // Show thumbnail image
+              const thumbnailImg = document.createElement("img");
+              thumbnailImg.src = `/thumbnail/${encodeURIComponent(
+                video.thumbnail
+              )}`;
+              thumbnailImg.alt = `Thumbnail for ${video.filename}`;
+              thumbnailImg.onerror = function () {
+                // Fallback if thumbnail fails to load
+                this.style.display = "none";
+                const placeholder = document.createElement("div");
+                placeholder.className = "placeholder";
+                placeholder.textContent = "🎬";
+                thumbnailDiv.appendChild(placeholder);
+              };
+              thumbnailDiv.appendChild(thumbnailImg);
+            } else {
+              // Show placeholder
+              const placeholder = document.createElement("div");
+              placeholder.className = "placeholder";
+              placeholder.textContent = "🎬";
+              thumbnailDiv.appendChild(placeholder);
+            }
+
+            thumbnailDiv.appendChild(playOverlay);
+
+            const videoInfo = document.createElement("div");
+            videoInfo.className = "video-info";
+
+            const videoLink = document.createElement("a");
+            videoLink.href = `/video/${encodeURIComponent(video.filename)}`;
+            videoLink.target = "_blank";
+            videoLink.className = "video-title";
+            videoLink.textContent = video.filename;
+
+            videoInfo.appendChild(videoLink);
+
+            // Make entire video item clickable
+            videoItem.addEventListener("click", (e) => {
+              if (e.target.tagName !== "A") {
+                videoLink.click();
+              }
+            });
+
+            videoItem.appendChild(thumbnailDiv);
+            videoItem.appendChild(videoInfo);
+            container.appendChild(videoItem);
           });
         } catch (error) {
           console.error("Error loading videos:", error);
@@ -410,6 +964,8 @@
           );
         }
       }
+
+      // Load videos on page load
       loadVideos();
     </script>
   </body>
