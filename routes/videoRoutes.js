@@ -11,7 +11,6 @@ router.post(
   videoController.handleUpload
 );
 router.get("/processing-status/:taskId", videoController.getProcessingStatus);
-router.post("/rename", authMiddleware, videoController.renameVideo);
 router.get("/videos", videoController.listVideos);
 router.get("/video/:filename", videoController.streamVideo);
 router.get("/thumbnail/:filename", videoController.getThumbnail);

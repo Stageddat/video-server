@@ -8,7 +8,6 @@ const status = document.getElementById("status");
 const submitBtn = document.getElementById("submitBtn");
 const videoFileInput = document.getElementById("videoFile");
 
-let currentProcessedFilename = null;
 let sseEventSource = null;
 
 function handleAuthError(errorType, message) {
@@ -28,8 +27,7 @@ function resetFormState() {
   progressContainer.style.display = "none";
   hideStatus();
   form.reset();
-  customNameInput.value = "";
-  currentProcessedFilename = null;
+  customNameInput.value = ""; // Clear custom name input
   if (sseEventSource) {
     sseEventSource.close();
     sseEventSource = null;
@@ -50,11 +48,16 @@ form.addEventListener("submit", async (e) => {
   progressBar.style.width = "0%";
   progressBar.style.background = "linear-gradient(90deg, #667eea, #764ba2)";
   showStatus("Starting upload...", "processing");
-  currentProcessedFilename = null;
-  if (sseEventSource) sseEventSource.close();
+  if (sseEventSource) sseEventSource.close(); // Close any existing SSE connection
 
   const formData = new FormData();
   formData.append("video", file);
+
+  // Get custom name and append it to formData
+  const customName = customNameInput.value.trim();
+  if (customName) {
+    formData.append("customName", customName);
+  }
 
   const xhr = new XMLHttpRequest();
   xhr.open("POST", "/upload", true);
@@ -96,16 +99,18 @@ form.addEventListener("submit", async (e) => {
       }
 
       if (response.success && response.taskId) {
+        // If the file was moved directly (special password), just show success and reset
         if (response.message === "Upload received, file moved directly.") {
-          currentProcessedFilename = response.filename || file.name;
           showStatus("Upload complete. File moved directly.", "success");
           showNotification(`✅ ${response.message}`);
           progressBar.style.width = "100%";
           progressBar.style.background = "#22c55e";
-          handleRenameAndFinalize();
+          await loadVideos(); // Reload videos to show the new one
+          setTimeout(() => resetFormState(), 2000);
           return;
         }
 
+        // For normal processing, initialize SSE
         showStatus("Upload complete. Initializing processing...", "processing");
         progressBar.style.width = "100%";
 
@@ -137,7 +142,6 @@ form.addEventListener("submit", async (e) => {
               "processing"
             );
           } else if (progressData.stage === "done") {
-            currentProcessedFilename = progressData.filename;
             showStatus(
               progressData.message || "Video processed successfully!",
               "success"
@@ -148,7 +152,8 @@ form.addEventListener("submit", async (e) => {
             progressBar.style.width = "100%";
             progressBar.style.background = "#22c55e";
             sseEventSource.close();
-            handleRenameAndFinalize();
+            loadVideos(); // Reload videos to show the new one
+            setTimeout(() => resetFormState(), 2000);
           } else if (progressData.stage === "error") {
             showStatus(
               `Error: ${progressData.error || "Processing failed"}`,
@@ -209,52 +214,7 @@ form.addEventListener("submit", async (e) => {
   xhr.send(formData);
 });
 
-async function handleRenameAndFinalize() {
-  const customName = customNameInput.value.trim();
-  if (customName && currentProcessedFilename) {
-    showStatus("Renaming file...", "processing");
-    try {
-      const renameRes = await fetch("/rename", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: passwordInput.value,
-        },
-        body: JSON.stringify({
-          original: currentProcessedFilename,
-          newName: customName,
-        }),
-      });
-
-      if (renameRes.status === 401) {
-        const renameAuthError = await renameRes.json();
-        if (renameAuthError.error === "WRONG_PASSWORD")
-          handleAuthError("WRONG_PASSWORD", "❌ Wrong password for renaming");
-        else handleAuthError("AUTH_ERROR", "🚫 Auth error during rename");
-        showStatus("❌ Rename auth failed", "error");
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = "<span>📤 Upload Video</span>";
-        return;
-      }
-
-      const renameResponse = await renameRes.json();
-      if (renameResponse.success) {
-        showNotification(`📝 ${renameResponse.message}`);
-        currentProcessedFilename = renameResponse.newName;
-      } else {
-        showNotification(`⚠️ Error renaming: ${renameResponse.error}`, true);
-      }
-    } catch (renameError) {
-      console.error("Rename fetch error:", renameError);
-      showNotification("⚠️ Network error while trying to rename file", true);
-    }
-  }
-
-  await loadVideos();
-  setTimeout(() => {
-    resetFormState();
-  }, 2000);
-}
+// handleRenameAndFinalize function is removed as renaming is now backend-only
 
 function showStatus(message, type) {
   status.textContent = message;

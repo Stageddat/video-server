@@ -15,6 +15,20 @@ const {
   cleanupTaskEmitter,
 } = require("../services/videoProcessor");
 
+// Function to find a unique filename by appending _X if it already exists
+const getUniqueFilename = (baseFilename, directory) => {
+  let filename = baseFilename;
+  let counter = 0;
+  const fileExtension = path.extname(baseFilename);
+  const nameWithoutExt = path.basename(baseFilename, fileExtension);
+
+  while (fileExists(path.join(directory, filename))) {
+    counter++;
+    filename = `${nameWithoutExt}_${counter}${fileExtension}`;
+  }
+  return filename;
+};
+
 const handleUpload = async (req, res) => {
   if (!req.file) {
     return res.status(400).json({
@@ -26,16 +40,37 @@ const handleUpload = async (req, res) => {
 
   const rawTempFilePath = req.file.path;
   const originalFilename = req.file.originalname;
+  const customName = req.body.customName; // Get custom name from the form data
+
+  // Determine the final filename based on customName or originalFilename
+  let desiredFilename;
+  const fileExtension = path.extname(originalFilename) || ".mp4";
+  const originalNameWithoutExt = path.parse(originalFilename).name;
+
+  if (customName) {
+    // Sanitize custom name: replace non-alphanumeric/dash/underscore/dot with underscore
+    const sanitizedCustomName = customName
+      .replace(/[^a-zA-Z0-9-_\s.]/g, "_")
+      .trim();
+    // Ensure the final name has the correct extension
+    desiredFilename = `${sanitizedCustomName.replace(
+      new RegExp(`${fileExtension}$`, "i"),
+      ""
+    )}${fileExtension}`;
+  } else {
+    // If no custom name, use the original filename directly.
+    desiredFilename = originalFilename;
+  }
+
+  // Ensure the final filename is unique in the UPLOADS_DIR
+  const finalNameForUploads = getUniqueFilename(desiredFilename, UPLOADS_DIR);
+
   const taskId =
     Date.now().toString() + Math.random().toString(36).substring(2, 7);
 
   const emitter = getTaskEventEmitter(taskId);
 
   if (req.isSpecialPassword) {
-    const finalTimestamp = Date.now();
-    const finalNameForUploads = `${finalTimestamp}${
-      path.extname(originalFilename) || ".mp4"
-    }`;
     const finalUploadsPath = path.join(UPLOADS_DIR, finalNameForUploads);
 
     try {
@@ -54,6 +89,10 @@ const handleUpload = async (req, res) => {
           skippedProcessing: true,
         });
       } catch (thumbError) {
+        console.error(
+          `Thumbnail generation failed for ${finalNameForUploads}:`,
+          thumbError
+        );
         emitter.emit("done", {
           filename: finalNameForUploads,
           message: "File uploaded directly (thumbnail generation failed).",
@@ -82,16 +121,14 @@ const handleUpload = async (req, res) => {
     }
   } else {
     const processingFileExt = path.extname(originalFilename) || ".mp4";
-    const processingFileName = `processing_${taskId}${processingFileExt}`;
+    const processingFileName = `processing_${taskId}${processingFileExt}`; // Temporary name during processing
     const processingTempFilePath = path.join(TEMP_DIR, processingFileName);
-    const finalNameForUploads = `${Date.now()}.mp4`;
 
     processVideo(
       rawTempFilePath,
       processingTempFilePath,
-      finalNameForUploads,
-      taskId,
-      originalFilename
+      finalNameForUploads, // Pass the determined final unique name
+      taskId
     ).catch((err) => {
       if (getTaskEventEmitter(taskId)) {
         getTaskEventEmitter(taskId).emit("error", {
@@ -168,59 +205,6 @@ const getProcessingStatus = (req, res) => {
       error: onError,
     });
   });
-};
-
-const renameVideo = (req, res) => {
-  const { original, newName } = req.body;
-  const oldPath = path.join(UPLOADS_DIR, original);
-  const safeNewName = newName.replace(/[^a-zA-Z0-9-_\s.]/g, "_").trim();
-  let finalNewName = safeNewName;
-  if (!finalNewName.toLowerCase().endsWith(".mp4")) {
-    finalNewName += ".mp4";
-  }
-  const newPath = path.join(UPLOADS_DIR, finalNewName);
-
-  if (oldPath === newPath) {
-    return res.json({
-      success: true,
-      newName: finalNewName,
-      message: `File already has the name: ${finalNewName}`,
-    });
-  }
-
-  if (!fileExists(oldPath)) {
-    return res.status(404).json({
-      success: false,
-      error: "Original file not found. Was it processed correctly?",
-    });
-  }
-
-  try {
-    renameFile(oldPath, newPath);
-
-    // Rename thumbnail if exists
-    const oldThumbName = original.replace(/\.[^/.]+$/, ".jpg");
-    const newThumbName = finalNewName.replace(/\.[^/.]+$/, ".jpg");
-    const oldThumbPath = path.join(THUMBNAILS_DIR, oldThumbName);
-    const newThumbPath = path.join(THUMBNAILS_DIR, newThumbName);
-
-    if (fileExists(oldThumbPath)) {
-      try {
-        renameFile(oldThumbPath, newThumbPath);
-      } catch (thumbError) {
-        // Ignore thumbnail rename errors
-        console.error("Thumbnail rename error:", thumbError);
-      }
-    }
-
-    res.json({
-      success: true,
-      newName: finalNewName,
-      message: `Name changed to: ${finalNewName}`,
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, error: "Error renaming file" });
-  }
 };
 
 const listVideos = (req, res) => {
@@ -317,7 +301,6 @@ const cleanupTempFiles = (req, res) => {
 module.exports = {
   handleUpload,
   getProcessingStatus,
-  renameVideo,
   listVideos,
   streamVideo,
   getThumbnail,

@@ -41,9 +41,8 @@ async function generateThumbnail(videoPath, outputPath, taskId) {
 async function processVideo(
   rawTempFilePath,
   processingTempFilePath,
-  finalNameForUploads,
-  taskId,
-  originalFilename
+  finalFilename, // This is now the desired final name for the uploaded file
+  taskId
 ) {
   const emitter = taskProgressEmitters[taskId];
   if (!emitter) {
@@ -165,27 +164,28 @@ async function processVideo(
           return;
         }
 
-        const finalUploadsPath = path.join(UPLOADS_DIR, finalNameForUploads);
+        const finalUploadsPath = path.join(UPLOADS_DIR, finalFilename); // Use the finalFilename directly
         try {
           fs.renameSync(processingTempFilePath, finalUploadsPath);
 
           // Generate thumbnail
-          const thumbnailName = finalNameForUploads.replace(
-            /\.[^/.]+$/,
-            ".jpg"
-          );
+          const thumbnailName = finalFilename.replace(/\.[^/.]+$/, ".jpg");
           const thumbnailPath = path.join(THUMBNAILS_DIR, thumbnailName);
 
           try {
             await generateThumbnail(finalUploadsPath, thumbnailPath, taskId);
             emitter.emit("done", {
-              filename: finalNameForUploads,
+              filename: finalFilename, // Report the final filename
               thumbnail: thumbnailName,
               message: "Video processed successfully.",
             });
           } catch (thumbError) {
+            console.error(
+              `Thumbnail generation failed for ${finalFilename}:`,
+              thumbError
+            );
             emitter.emit("done", {
-              filename: finalNameForUploads,
+              filename: finalFilename, // Report the final filename
               message:
                 "Video processed successfully (thumbnail generation failed).",
             });
