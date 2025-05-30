@@ -1,391 +1,10 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <title>video hosting</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <style>
-      * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-      }
-
-      body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-          Oxygen, Ubuntu, Cantarell, sans-serif;
-        background: linear-gradient(
-          135deg,
-          #0f0f23 0%,
-          #1a1a2e 50%,
-          #16213e 100%
-        );
-        color: #e5e7eb;
-        min-height: 100vh;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        padding: 1rem;
-        line-height: 1.6;
-      }
-
-      .container {
-        width: 100%;
-        max-width: 800px;
-        margin: 0 auto;
-      }
-
-      h1 {
-        color: #ffffff;
-        text-align: center;
-        font-size: 2.5rem;
-        font-weight: 700;
-        margin-bottom: 2rem;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        background-clip: text;
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        text-shadow: 0 0 30px rgba(102, 126, 234, 0.3);
-      }
-
-      h2 {
-        color: #f3f4f6;
-        font-size: 1.8rem;
-        font-weight: 600;
-        margin-bottom: 1.5rem;
-        text-align: center;
-      }
-
-      #uploadForm {
-        background: rgba(31, 41, 55, 0.8);
-        backdrop-filter: blur(20px);
-        border: 1px solid rgba(75, 85, 99, 0.3);
-        padding: 2rem;
-        border-radius: 20px;
-        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-        margin-bottom: 3rem;
-        transition: all 0.3s ease;
-      }
-
-      #uploadForm:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 32px 64px -12px rgba(0, 0, 0, 0.6);
-      }
-
-      input[type="file"],
-      input[type="password"],
-      input[type="text"] {
-        width: 100%;
-        padding: 1rem 1.25rem;
-        margin-bottom: 1.5rem;
-        background: rgba(17, 24, 39, 0.8);
-        border: 2px solid rgba(75, 85, 99, 0.4);
-        border-radius: 12px;
-        color: #f9fafb;
-        font-size: 1rem;
-        transition: all 0.3s ease;
-        outline: none;
-      }
-
-      input[type="file"]:focus,
-      input[type="password"]:focus,
-      input[type="text"]:focus {
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        background: rgba(17, 24, 39, 0.9);
-      }
-
-      input::placeholder {
-        color: #9ca3af;
-      }
-
-      input[type="file"] {
-        padding: 1.25rem;
-        cursor: pointer;
-        background: rgba(55, 65, 81, 0.6);
-        border: 2px dashed rgba(102, 126, 234, 0.4);
-        text-align: center;
-        position: relative;
-        overflow: hidden;
-      }
-
-      input[type="file"]:hover {
-        border-color: #667eea;
-        background: rgba(55, 65, 81, 0.8);
-      }
-
-      button {
-        width: 100%;
-        padding: 1rem 2rem;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border: none;
-        border-radius: 12px;
-        font-size: 1.1rem;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.3s ease;
-        position: relative;
-        overflow: hidden;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-      }
-
-      button::before {
-        content: "";
-        position: absolute;
-        top: 0;
-        left: -100%;
-        width: 100%;
-        height: 100%;
-        background: linear-gradient(
-          90deg,
-          transparent,
-          rgba(255, 255, 255, 0.2),
-          transparent
-        );
-        transition: left 0.5s;
-      }
-
-      button:hover::before {
-        left: 100%;
-      }
-
-      button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 20px 40px -12px rgba(102, 126, 234, 0.4);
-      }
-
-      button:disabled {
-        background: linear-gradient(135deg, #4b5563 0%, #6b7280 100%);
-        cursor: not-allowed;
-        transform: none;
-        box-shadow: none;
-      }
-
-      button:disabled::before {
-        display: none;
-      }
-
-      #progress-container {
-        width: 100%;
-        background: rgba(17, 24, 39, 0.8);
-        height: 8px;
-        border-radius: 10px;
-        overflow: hidden;
-        margin-bottom: 1.5rem;
-        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
-      }
-
-      #progress-bar {
-        height: 100%;
-        width: 0%;
-        background: linear-gradient(90deg, #667eea, #764ba2);
-        transition: width 0.3s ease;
-        border-radius: 10px;
-        box-shadow: 0 0 20px rgba(102, 126, 234, 0.5);
-      }
-
-      #status {
-        margin-bottom: 1.5rem;
-        padding: 1rem 1.25rem;
-        border-radius: 12px;
-        font-weight: 600;
-        display: none;
-        text-align: center;
-        backdrop-filter: blur(10px);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-      }
-
-      .status-processing {
-        background: linear-gradient(
-          135deg,
-          rgba(245, 158, 11, 0.2),
-          rgba(217, 119, 6, 0.2)
-        );
-        color: #fbbf24;
-        border-color: rgba(245, 158, 11, 0.3);
-      }
-
-      .status-success {
-        background: linear-gradient(
-          135deg,
-          rgba(34, 197, 94, 0.2),
-          rgba(21, 128, 61, 0.2)
-        );
-        color: #4ade80;
-        border-color: rgba(34, 197, 94, 0.3);
-      }
-
-      .status-error {
-        background: linear-gradient(
-          135deg,
-          rgba(239, 68, 68, 0.2),
-          rgba(185, 28, 28, 0.2)
-        );
-        color: #f87171;
-        border-color: rgba(239, 68, 68, 0.3);
-      }
-
-      #videos {
-        background: rgba(31, 41, 55, 0.8);
-        backdrop-filter: blur(20px);
-        border: 1px solid rgba(75, 85, 99, 0.3);
-        border-radius: 20px;
-        padding: 2rem;
-        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-      }
-
-      #videoList {
-        display: grid;
-        gap: 1rem;
-        margin-top: 1rem;
-      }
-
-      .video-name {
-        background: rgba(17, 24, 39, 0.6);
-        border: 1px solid rgba(75, 85, 99, 0.3);
-        border-radius: 12px;
-        padding: 1rem 1.25rem;
-        transition: all 0.3s ease;
-      }
-
-      .video-name:hover {
-        background: rgba(17, 24, 39, 0.8);
-        border-color: #667eea;
-        transform: translateX(5px);
-        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
-      }
-
-      .video-name a {
-        text-decoration: none;
-        color: #e5e7eb;
-        font-weight: 500;
-        font-size: 1rem;
-        display: block;
-        transition: color 0.3s ease;
-      }
-
-      .video-name a:hover {
-        color: #667eea;
-      }
-
-      #notification {
-        background: linear-gradient(
-          135deg,
-          rgba(34, 197, 94, 0.9),
-          rgba(21, 128, 61, 0.9)
-        );
-        color: white;
-        padding: 1rem 1.25rem;
-        margin: 1rem 0;
-        border-radius: 12px;
-        display: none;
-        backdrop-filter: blur(10px);
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        text-align: center;
-        font-weight: 500;
-        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
-      }
-
-      .notification-error {
-        background: linear-gradient(
-          135deg,
-          rgba(239, 68, 68, 0.9),
-          rgba(185, 28, 28, 0.9)
-        ) !important;
-      }
-
-      /* Responsive Design */
-      @media (max-width: 768px) {
-        body {
-          padding: 0.5rem;
-        }
-
-        h1 {
-          font-size: 2rem;
-          margin-bottom: 1.5rem;
-        }
-
-        h2 {
-          font-size: 1.5rem;
-          margin-bottom: 1rem;
-        }
-
-        #uploadForm,
-        #videos {
-          padding: 1.5rem;
-          border-radius: 16px;
-          margin-bottom: 2rem;
-        }
-
-        input[type="file"],
-        input[type="password"],
-        input[type="text"] {
-          padding: 0.875rem 1rem;
-          margin-bottom: 1.25rem;
-          font-size: 16px; /* Prevents zoom on iOS */
-        }
-
-        button {
-          padding: 0.875rem 1.5rem;
-          font-size: 1rem;
-        }
-
-        #videoList {
-          gap: 0.75rem;
-        }
-
-        .video-name {
-          padding: 0.875rem 1rem;
-        }
-
-        .video-name a {
-          font-size: 0.9rem;
-        }
-      }
-
-      @media (max-width: 480px) {
-        h1 {
-          font-size: 1.75rem;
-        }
-
-        #uploadForm,
-        #videos {
-          padding: 1.25rem;
-          border-radius: 12px;
-        }
-
-        input[type="file"],
-        input[type="password"],
-        input[type="text"] {
-          padding: 0.75rem;
-          margin-bottom: 1rem;
-        }
-
-        button {
-          padding: 0.75rem 1.25rem;
-        }
-      }
-
-      /* Dark mode scrollbar */
-      ::-webkit-scrollbar {
-        width: 8px;
-      }
-
-      ::-webkit-scrollbar-track {
-        background: rgba(17, 24, 39, 0.5);
-      }
-
-      ::-webkit-scrollbar-thumb {
-        background: rgba(102, 126, 234, 0.6);
-        border-radius: 4px;
-      }
-
-      ::-webkit-scrollbar-thumb:hover {
-        background: rgba(102, 126, 234, 0.8);
-      }
-    </style>
+    <link rel="stylesheet" href="style.css" />
   </head>
   <body>
     <div class="container">
@@ -425,6 +44,31 @@
       const notification = document.getElementById("notification");
       const status = document.getElementById("status");
       const submitBtn = document.getElementById("submitBtn");
+
+      // Function to handle authentication errors
+      function handleAuthError(errorType, message) {
+        // Clear input error classes first
+        passwordInput.classList.remove("input-error");
+
+        // Add error styling to password input
+        passwordInput.classList.add("input-error");
+
+        // Show notification with specific styling
+        showNotification(message, true, "auth");
+
+        // Clear password field
+        passwordInput.value = "";
+
+        // Focus on password input
+        setTimeout(() => {
+          passwordInput.focus();
+        }, 100);
+
+        // Remove error styling after a few seconds
+        setTimeout(() => {
+          passwordInput.classList.remove("input-error");
+        }, 3000);
+      }
 
       form.addEventListener("submit", async (e) => {
         e.preventDefault();
@@ -466,11 +110,33 @@
           try {
             const response = JSON.parse(xhr.responseText);
 
+            // Check for authentication errors first
+            if (xhr.status === 401) {
+              if (response.error === "MISSING_PASSWORD") {
+                handleAuthError(
+                  "MISSING_PASSWORD",
+                  "🔒 please enter a password"
+                );
+              } else if (response.error === "WRONG_PASSWORD") {
+                handleAuthError("WRONG_PASSWORD", "❌ wrong password");
+              } else {
+                handleAuthError("AUTH_ERROR", "🚫 authentication error");
+              }
+
+              showStatus("❌ authentication failed", "error");
+              progressBar.style.background = "#ef4444";
+
+              // re-enable form
+              submitBtn.disabled = false;
+              submitBtn.innerHTML = "<span>📤 upload video</span>";
+              return;
+            }
+
             if (response.success) {
               showStatus("video processed successfully", "success");
-              showNotification("video uploaded and processed successfully");
+              showNotification("✅ video uploaded and processed successfully");
               progressBar.style.width = "100%";
-              progressBar.style.background = "#27ae60";
+              progressBar.style.background = "#22c55e";
 
               // try to rename if custom name was provided
               const customName = customNameInput.value.trim();
@@ -488,17 +154,28 @@
                     }),
                   });
 
+                  if (renameRes.status === 401) {
+                    const renameError = await renameRes.json();
+                    if (renameError.error === "WRONG_PASSWORD") {
+                      handleAuthError(
+                        "WRONG_PASSWORD",
+                        "❌ wrong password for renaming"
+                      );
+                    }
+                    return;
+                  }
+
                   const renameResponse = await renameRes.json();
                   if (renameResponse.success) {
-                    showNotification(renameResponse.message);
+                    showNotification("📝 " + renameResponse.message);
                   } else {
                     showNotification(
-                      "error renaming: " + renameResponse.error,
+                      "⚠️ error renaming: " + renameResponse.error,
                       true
                     );
                   }
                 } catch (renameError) {
-                  showNotification("error renaming file", true);
+                  showNotification("⚠️ error renaming file", true);
                 }
               }
 
@@ -511,13 +188,13 @@
             } else {
               // processing error
               showStatus("error: " + response.error, "error");
-              showNotification("error: " + response.error, true);
-              progressBar.style.background = "#e74c3c";
+              showNotification("❌ error: " + response.error, true);
+              progressBar.style.background = "#ef4444";
             }
           } catch (parseError) {
             showStatus("error processing server response", "error");
-            showNotification("error processing server response", true);
-            progressBar.style.background = "#e74c3c";
+            showNotification("❌ error processing server response", true);
+            progressBar.style.background = "#ef4444";
           }
 
           // re-enable form
@@ -527,17 +204,18 @@
           // hide progress bar after a few seconds
           setTimeout(() => {
             progressBar.style.width = "0%";
-            progressBar.style.background = "#3498db";
+            progressBar.style.background =
+              "linear-gradient(90deg, #667eea, #764ba2)";
             hideStatus();
           }, 3000);
         };
 
         xhr.onerror = function () {
           showStatus("❌ connection error", "error");
-          showNotification("connection error with server", true);
+          showNotification("🔌 connection error with server", true);
           submitBtn.disabled = false;
           submitBtn.innerHTML = "<span>📤 upload video</span>";
-          progressBar.style.background = "#e74c3c";
+          progressBar.style.background = "#ef4444";
         };
 
         xhr.send(formData);
@@ -553,9 +231,18 @@
         status.style.display = "none";
       }
 
-      function showNotification(msg, isError = false) {
+      function showNotification(msg, isError = false, errorType = null) {
         notification.textContent = msg;
-        notification.className = isError ? "notification-error" : "";
+        notification.className = "";
+
+        if (isError) {
+          if (errorType === "auth") {
+            notification.className = "notification-auth-error";
+          } else {
+            notification.className = "notification-error";
+          }
+        }
+
         notification.style.display = "block";
         setTimeout(() => {
           notification.style.display = "none";
@@ -588,7 +275,7 @@
           });
         } catch (error) {
           console.error("error loading videos:", error);
-          showNotification("error loading video list", true);
+          showNotification("❌ error loading video list", true);
         }
       }
 
