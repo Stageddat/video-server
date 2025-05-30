@@ -13,11 +13,9 @@ router.post(
 router.get("/processing-status/:taskId", videoController.getProcessingStatus);
 router.get("/videos", videoController.listVideos);
 router.get("/video/:filename", videoController.streamVideo);
-router.get("/embedVideo", videoController.embedVideo); // Re-added explicit embed route
+router.get("/embedVideo", videoController.embedVideo);
 router.get("/thumbnail/:filename", videoController.getThumbnail);
 router.post("/cleanup", authMiddleware, videoController.cleanupTempFiles);
-
-// New routes for editing and deleting videos
 router.delete("/video/:filename", authMiddleware, videoController.deleteVideo);
 router.post("/rename", authMiddleware, videoController.renameVideo);
 
