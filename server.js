@@ -25,6 +25,7 @@ const taskProgressEmitters = {};
 function authMiddleware(req, res, next) {
   const providedPassword = req.headers.authorization;
   console.log("🔐 auth check - password provided:", !!providedPassword);
+
   if (!providedPassword) {
     console.log("❌ auth failed: no password provided");
     return res.status(401).json({
@@ -33,7 +34,13 @@ function authMiddleware(req, res, next) {
       message: "password required",
     });
   }
-  if (providedPassword !== PASSWORD) {
+
+  req.isSpecialPassword = providedPassword === process.env.SPECIAL_PASSWORD;
+
+  if (
+    !req.isSpecialPassword &&
+    providedPassword !== process.env.MASTER_PASSWORD
+  ) {
     console.log("❌ auth failed: wrong password");
     return res.status(401).json({
       success: false,
@@ -41,6 +48,7 @@ function authMiddleware(req, res, next) {
       message: "wrong password",
     });
   }
+
   console.log("✅ auth successful");
   next();
 }
@@ -329,67 +337,71 @@ app.post(
       });
     }
 
-    const rawTempFilePath = req.file.path; // Full path to raw file in TEMP_DIR (e.g., temp/raw_timestamp_suffix.mp4)
+    const rawTempFilePath = req.file.path;
     const originalFilename = req.file.originalname;
-
-    console.log(
-      `📁 Original filename: ${originalFilename}, Raw temp stored at: ${rawTempFilePath}`
-    );
-    console.log(
-      `📊 File size: ${req.file.size} bytes, Mime type: ${req.file.mimetype}`
-    );
-
     const taskId =
       Date.now().toString() + Math.random().toString(36).substring(2, 7);
 
-    // Define the name for the "processing" output file in TEMP_DIR
-    const processingFileExt = path.extname(originalFilename) || ".mp4";
-    const processingFileName = `processing_${taskId}${processingFileExt}`;
-    const processingTempFilePath = path.join(TEMP_DIR, processingFileName);
-
-    // Define the final name for the file once it's in UPLOADS_DIR
-    const finalTimestamp = Date.now(); // Use a new timestamp for the final processed file
-    const finalNameForUploads = `${finalTimestamp}.mp4`;
-
-    console.log(`[${taskId}] 📂 Raw temp file: ${rawTempFilePath}`);
-    console.log(
-      `[${taskId}] 🌀 Processing temp output file: ${processingTempFilePath}`
-    );
-    console.log(
-      `[${taskId}] 🏁 Final uploads file name: ${finalNameForUploads}`
-    );
-
     taskProgressEmitters[taskId] = new EventEmitter();
 
-    processVideo(
-      rawTempFilePath,
-      processingTempFilePath,
-      finalNameForUploads,
-      taskId,
-      originalFilename
-    ).catch((err) => {
-      console.error(
-        `[${taskId}] ❌ Uncaught error in processVideo async wrapper:`,
-        err
+    if (req.isSpecialPassword) {
+      console.log(
+        `[${taskId}] 🔑 Special password detected - skipping processing`
       );
-      if (taskProgressEmitters[taskId]) {
-        taskProgressEmitters[taskId].emit("error", {
-          message: "ASYNC_PROCESS_ERROR",
-          error: "Critical error in video processing.",
+
+      // Mover directamente a uploads
+      const finalTimestamp = Date.now();
+      const finalNameForUploads = `${finalTimestamp}${
+        path.extname(originalFilename) || ".mp4"
+      }`;
+      const finalUploadsPath = path.join(UPLOADS_DIR, finalNameForUploads);
+
+      try {
+        fs.renameSync(rawTempFilePath, finalUploadsPath);
+        console.log(
+          `[${taskId}] 🚀 File moved directly to uploads: ${finalNameForUploads}`
+        );
+
+        taskProgressEmitters[taskId].emit("done", {
+          filename: finalNameForUploads,
+          message: "File uploaded directly (special password).",
+          skippedProcessing: true,
         });
+      } catch (err) {
+        console.error(`[${taskId}] ❌ Error moving file:`, err);
+        taskProgressEmitters[taskId].emit("error", {
+          message: "MOVE_FAILED",
+          error: "Could not move file to uploads directory.",
+        });
+        safeUnlink(rawTempFilePath, taskId, "Raw temp file (move failed)");
       }
-      // Ensure cleanup if processVideo itself throws an unhandled error before ffmpeg starts
-      safeUnlink(
+    } else {
+      console.log(`[${taskId}] 🔒 Normal password - processing video`);
+
+      // Procesamiento normal como antes
+      const processingFileExt = path.extname(originalFilename) || ".mp4";
+      const processingFileName = `processing_${taskId}${processingFileExt}`;
+      const processingTempFilePath = path.join(TEMP_DIR, processingFileName);
+      const finalNameForUploads = `${Date.now()}.mp4`;
+
+      processVideo(
         rawTempFilePath,
-        taskId,
-        "Raw temp file (async wrapper error)"
-      );
-      safeUnlink(
         processingTempFilePath,
+        finalNameForUploads,
         taskId,
-        "Processing temp file (async wrapper error)"
-      );
-    });
+        originalFilename
+      ).catch((err) => {
+        console.error(`[${taskId}] ❌ Error in processVideo:`, err);
+        if (taskProgressEmitters[taskId]) {
+          taskProgressEmitters[taskId].emit("error", {
+            message: "ASYNC_PROCESS_ERROR",
+            error: "Critical error in video processing.",
+          });
+        }
+        safeUnlink(rawTempFilePath, taskId, "Raw temp file");
+        safeUnlink(processingTempFilePath, taskId, "Processing temp file");
+      });
+    }
 
     res.json({
       success: true,
@@ -425,7 +437,12 @@ app.get("/processing-status/:taskId", (req, res) => {
 
   const onDone = (data) => {
     console.log(`[${taskId}] 🛰️ Sending done:`, data);
-    res.write(`data: ${JSON.stringify({ ...data, stage: "done" })}\n\n`);
+    const responseData = {
+      ...data,
+      stage: "done",
+      skippedProcessing: data.skippedProcessing || false,
+    };
+    res.write(`data: ${JSON.stringify(responseData)}\n\n`);
     res.end();
     cleanupTaskEmitter(taskId, {
       progress: onProgress,
