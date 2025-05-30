@@ -227,58 +227,10 @@ const listVideos = (req, res) => {
 };
 
 /**
- * Streams the video file directly.
+ * Generates and sends the HTML for Discord video embeds.
+ * This function is used by both streamVideo (if Discordbot) and the dedicated /embedVideo route.
  */
-const streamVideo = (req, res) => {
-  const { filename } = req.params;
-  const filePath = path.join(UPLOADS_DIR, filename);
-
-  if (!fileExists(filePath)) {
-    return res.status(404).send("Video not found");
-  }
-
-  const fileSize = getFileSize(filePath);
-  const range = req.headers.range;
-
-  if (range) {
-    const parts = range.replace(/bytes=/, "").split("-");
-    const start = parseInt(parts[0], 10);
-    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-
-    if (start >= fileSize || end >= fileSize || start > end) {
-      res.status(416).send("Requested Range Not Satisfiable");
-      return;
-    }
-    const chunkSize = end - start + 1;
-
-    const file = fs.createReadStream(filePath, { start, end });
-    res.writeHead(206, {
-      "Content-Range": `bytes ${start}-${end}/${fileSize}`,
-      "Accept-Ranges": "bytes",
-      "Content-Length": chunkSize,
-      "Content-Type": "video/mp4",
-    });
-    file.pipe(res);
-  } else {
-    res.writeHead(200, {
-      "Content-Length": fileSize,
-      "Content-Type": "video/mp4",
-    });
-    fs.createReadStream(filePath).pipe(res);
-  }
-};
-
-/**
- * Renders an HTML page with Open Graph meta tags for Discord video embeds.
- * This allows Discord to display a playable video embed when a link to this endpoint is shared.
- */
-const embedVideo = (req, res) => {
-  const { filename } = req.query;
-
-  if (!filename) {
-    return res.status(400).send("Filename is required for video embed.");
-  }
-
+const sendEmbedHtml = (req, res, filename) => {
   const videoPathInUploads = path.join(UPLOADS_DIR, filename);
   if (!fileExists(videoPathInUploads)) {
     return res.status(404).send("Video not found.");
@@ -370,6 +322,71 @@ const embedVideo = (req, res) => {
 };
 
 /**
+ * Streams the video file directly or serves an embed HTML page if requested by Discord.
+ */
+const streamVideo = (req, res) => {
+  const { filename } = req.params;
+  const filePath = path.join(UPLOADS_DIR, filename);
+
+  if (!fileExists(filePath)) {
+    return res.status(404).send("Video not found");
+  }
+
+  // Check if the request is from Discordbot
+  const userAgent = req.headers["user-agent"];
+  const isDiscordBot = userAgent && userAgent.includes("Discordbot");
+
+  if (isDiscordBot) {
+    // If Discordbot, serve the embed HTML
+    sendEmbedHtml(req, res, filename);
+  } else {
+    // Otherwise, stream the video file directly
+    const fileSize = getFileSize(filePath);
+    const range = req.headers.range;
+
+    if (range) {
+      const parts = range.replace(/bytes=/, "").split("-");
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+
+      if (start >= fileSize || end >= fileSize || start > end) {
+        res.status(416).send("Requested Range Not Satisfiable");
+        return;
+      }
+      const chunkSize = end - start + 1;
+
+      const file = fs.createReadStream(filePath, { start, end });
+      res.writeHead(206, {
+        "Content-Range": `bytes ${start}-${end}/${fileSize}`,
+        "Accept-Ranges": "bytes",
+        "Content-Length": chunkSize,
+        "Content-Type": "video/mp4",
+      });
+      file.pipe(res);
+    } else {
+      res.writeHead(200, {
+        "Content-Length": fileSize,
+        "Content-Type": "video/mp4",
+      });
+      fs.createReadStream(filePath).pipe(res);
+    }
+  }
+};
+
+/**
+ * Renders an HTML page with Open Graph meta tags for Discord video embeds.
+ * This is the dedicated endpoint for embeds.
+ */
+const embedVideo = (req, res) => {
+  const { filename } = req.query;
+
+  if (!filename) {
+    return res.status(400).send("Filename is required for video embed.");
+  }
+  sendEmbedHtml(req, res, filename);
+};
+
+/**
  * Deletes a video file and its corresponding thumbnail.
  */
 const deleteVideo = (req, res) => {
@@ -408,12 +425,10 @@ const renameVideo = (req, res) => {
   const { originalFilename, newName } = req.body; // originalFilename is the current name, newName is the desired new name
 
   if (!originalFilename || !newName) {
-    return res
-      .status(400)
-      .json({
-        success: false,
-        message: "Original filename and new name are required.",
-      });
+    return res.status(400).json({
+      success: false,
+      message: "Original filename and new name are required.",
+    });
   }
 
   const oldPath = path.join(UPLOADS_DIR, originalFilename);
@@ -505,7 +520,7 @@ module.exports = {
   streamVideo,
   getThumbnail,
   cleanupTempFiles,
-  embedVideo, // Re-exported
-  deleteVideo, // New export
-  renameVideo, // New export
+  embedVideo,
+  deleteVideo,
+  renameVideo,
 };
