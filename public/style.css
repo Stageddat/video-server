@@ -5,7 +5,7 @@
 }
 
 body {
-	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+	font-family: -apple-system, BlinkMacMacSystemFont, "Segoe UI", Roboto,
 		Oxygen, Ubuntu, Cantarell, sans-serif;
 	background: linear-gradient(135deg,
 			#0f0f23 0%,
@@ -388,6 +388,151 @@ button:disabled::before {
 	}
 }
 
+/* --- New styles for Action Buttons and Modal --- */
+.video-actions {
+	display: flex;
+	gap: 0.5rem;
+	margin-top: 0.75rem;
+	justify-content: flex-end;
+	/* Align buttons to the right */
+}
+
+.action-btn {
+	padding: 0.5rem 1rem;
+	border: none;
+	border-radius: 8px;
+	font-size: 0.85rem;
+	font-weight: 500;
+	cursor: pointer;
+	transition: all 0.2s ease;
+	width: auto;
+	/* Override full width from general button style */
+	text-transform: none;
+	/* Override uppercase */
+	letter-spacing: normal;
+	/* Override letter spacing */
+}
+
+.action-btn::before {
+	display: none;
+	/* Remove shimmer effect for these buttons */
+}
+
+.edit-btn {
+	background-color: #4a90e2;
+	/* Blue */
+	color: white;
+}
+
+.edit-btn:hover {
+	background-color: #357bd8;
+	transform: translateY(-1px);
+	box-shadow: 0 4px 10px rgba(74, 144, 226, 0.3);
+}
+
+.delete-btn {
+	background-color: #e24a4a;
+	/* Red */
+	color: white;
+}
+
+.delete-btn:hover {
+	background-color: #d83535;
+	transform: translateY(-1px);
+	box-shadow: 0 4px 10px rgba(226, 74, 74, 0.3);
+}
+
+/* Modal Styles */
+.modal-overlay {
+	position: fixed;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	background: rgba(0, 0, 0, 0.7);
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	z-index: 2000;
+	display: none;
+	/* Hidden by default */
+}
+
+.modal-content {
+	background: rgba(31, 41, 55, 0.95);
+	backdrop-filter: blur(15px);
+	padding: 2rem;
+	border-radius: 16px;
+	box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+	text-align: center;
+	max-width: 400px;
+	width: 90%;
+	border: 1px solid rgba(75, 85, 99, 0.5);
+}
+
+#modalMessage {
+	font-size: 1.1rem;
+	margin-bottom: 1.5rem;
+	color: #f3f4f6;
+}
+
+#modalInput {
+	margin-bottom: 1.5rem;
+	padding: 0.75rem 1rem;
+	border-radius: 8px;
+	border: 1px solid rgba(75, 85, 99, 0.6);
+	background-color: rgba(17, 24, 39, 0.8);
+	color: #f9fafb;
+	width: calc(100% - 2rem);
+	/* Adjust for padding */
+	font-size: 1rem;
+}
+
+.modal-actions {
+	display: flex;
+	justify-content: center;
+	gap: 1rem;
+}
+
+.modal-confirm-btn,
+.modal-cancel-btn {
+	padding: 0.75rem 1.5rem;
+	border: none;
+	border-radius: 8px;
+	font-size: 1rem;
+	font-weight: 600;
+	cursor: pointer;
+	transition: all 0.2s ease;
+	width: auto;
+	/* Override full width */
+	text-transform: none;
+	letter-spacing: normal;
+}
+
+.modal-confirm-btn {
+	background-color: #22c55e;
+	/* Green */
+	color: white;
+}
+
+.modal-confirm-btn:hover {
+	background-color: #16a34a;
+	transform: translateY(-1px);
+	box-shadow: 0 4px 10px rgba(34, 197, 94, 0.3);
+}
+
+.modal-cancel-btn {
+	background-color: #6b7280;
+	/* Gray */
+	color: white;
+}
+
+.modal-cancel-btn:hover {
+	background-color: #4b5563;
+	transform: translateY(-1px);
+	box-shadow: 0 4px 10px rgba(107, 114, 128, 0.3);
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
 	body {
@@ -445,6 +590,16 @@ button:disabled::before {
 		right: 10px;
 		left: 10px;
 		max-width: none;
+	}
+
+	.modal-content {
+		padding: 1.5rem;
+	}
+
+	.modal-confirm-btn,
+	.modal-cancel-btn {
+		padding: 0.6rem 1.2rem;
+		font-size: 0.9rem;
 	}
 }
 
