@@ -124,8 +124,6 @@
         };
 
         xhr.onload = async function () {
-          submitBtn.innerHTML = "<span>⏳ Processing...</span>"; // Cambiar texto del botón después de subir
-
           try {
             const response = JSON.parse(xhr.responseText);
 
@@ -140,16 +138,15 @@
               else handleAuthError("AUTH_ERROR", "🚫 Authentication error");
               showStatus("❌ Authentication failed", "error");
               progressBar.style.background = "#ef4444";
-              resetFormState(); // Parcial, mantener contraseña podría ser útil pero por ahora reset completo
+              resetFormState();
               passwordInput.value =
-                xhr.status === 401 ? "" : passwordInput.value; // Limpiar solo si es error de pass
+                xhr.status === 401 ? "" : passwordInput.value;
               submitBtn.disabled = false;
               submitBtn.innerHTML = "<span>📤 Upload Video</span>";
               return;
             }
 
             if (xhr.status >= 400) {
-              // Otros errores del servidor al subir
               showStatus(
                 `Error: ${response.message || "Upload failed"}`,
                 "error"
@@ -164,13 +161,26 @@
             }
 
             if (response.success && response.taskId) {
+              // Si el servidor indica que el archivo ya fue movido directamente
+              if (
+                response.message === "Upload received, file moved directly."
+              ) {
+                currentProcessedFilename = response.filename || file.name; // Asegúrate de que el backend envíe 'filename' en este caso.
+                showStatus("Upload complete. File moved directly.", "success");
+                showNotification(`✅ ${response.message}`);
+                progressBar.style.width = "100%";
+                progressBar.style.background = "#22c55e";
+                handleRenameAndFinalize(); // Ir directamente a renombrar/finalizar
+                return; // Importante para no seguir con SSE
+              }
+
+              // Si no fue un movimiento directo, proceder con SSE
               showStatus(
                 "Upload complete. Initializing processing...",
                 "processing"
               );
               progressBar.style.width = "100%"; // Upload visualmente completo
 
-              // Iniciar escucha de eventos SSE para el progreso del procesamiento
               sseEventSource = new EventSource(
                 `/processing-status/${response.taskId}`
               );
@@ -184,14 +194,14 @@
                     progressData.message || "Analyzing video...",
                     "processing"
                   );
-                  progressBar.style.width = "0%"; // Resetear barra para etapa de procesamiento
+                  progressBar.style.width = "0%";
                 } else if (progressData.stage === "probed_success") {
                   showStatus(
                     progressData.message ||
                       "Analysis complete. Starting conversion...",
                     "processing"
                   );
-                  progressBar.style.width = "0%"; // O un pequeño % inicial
+                  progressBar.style.width = "0%";
                 } else if (progressData.stage === "processing") {
                   progressBar.style.width = (progressData.percent || 0) + "%";
                   showStatus(
@@ -229,7 +239,7 @@
                   );
                   progressBar.style.background = "#ef4444";
                   sseEventSource.close();
-                  resetFormState(); // Resetear todo
+                  resetFormState();
                 }
               };
 
@@ -247,7 +257,6 @@
                 resetFormState();
               };
             } else {
-              // Si /upload no devuelve success o taskId
               showStatus(
                 "Error: Could not initialize video processing.",
                 "error"
@@ -300,7 +309,6 @@
               }),
             });
 
-            // Autenticación para renombrar
             if (renameRes.status === 401) {
               const renameAuthError = await renameRes.json();
               if (renameAuthError.error === "WRONG_PASSWORD")
@@ -310,16 +318,15 @@
                 );
               else handleAuthError("AUTH_ERROR", "🚫 Auth error during rename");
               showStatus("❌ Rename auth failed", "error");
-              // No resetear todo, solo el estado de error de auth
               submitBtn.disabled = false;
               submitBtn.innerHTML = "<span>📤 Upload Video</span>";
-              return; // Detener aquí para que el usuario pueda reintentar o corregir
+              return;
             }
 
             const renameResponse = await renameRes.json();
             if (renameResponse.success) {
               showNotification(`📝 ${renameResponse.message}`);
-              currentProcessedFilename = renameResponse.newName; // Actualizar con el nuevo nombre
+              currentProcessedFilename = renameResponse.newName;
             } else {
               showNotification(
                 `⚠️ Error renaming: ${renameResponse.error}`,
@@ -336,15 +343,14 @@
         }
 
         await loadVideos();
-        // Resetear completamente después de un éxito y posible renombramiento
         setTimeout(() => {
           resetFormState();
-        }, 2000); // Un pequeño delay para que el usuario vea el mensaje final
+        }, 2000);
       }
 
       function showStatus(message, type) {
         status.textContent = message;
-        status.className = `status-${type}`; // Asegúrate de tener clases CSS: status-info, status-processing, status-success, status-error
+        status.className = `status-${type}`;
         status.style.display = "block";
       }
 
@@ -361,7 +367,7 @@
               ? "notification-auth-error"
               : "notification-error";
         } else {
-          notification.className = "notification-success"; // Clase para notificaciones de éxito
+          notification.className = "notification-success";
         }
         notification.style.display = "block";
         setTimeout(() => {
@@ -388,11 +394,11 @@
 
           files.forEach((file) => {
             const div = document.createElement("div");
-            div.className = "video-name"; // Asegúrate que esta clase exista en tu CSS
+            div.className = "video-name";
             const link = document.createElement("a");
             link.href = `/video/${encodeURIComponent(file)}`;
             link.target = "_blank";
-            link.innerHTML = `🎬 ${file}`; // Usar textContent es más seguro si los nombres de archivo pudieran tener HTML
+            link.innerHTML = `🎬 ${file}`;
             div.appendChild(link);
             container.appendChild(div);
           });

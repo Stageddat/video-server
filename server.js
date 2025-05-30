@@ -362,18 +362,35 @@ app.post(
           `[${taskId}] 🚀 File moved directly to uploads: ${finalNameForUploads}`
         );
 
+        // Emit 'done' event immediately for special password
         taskProgressEmitters[taskId].emit("done", {
           filename: finalNameForUploads,
           message: "File uploaded directly (special password).",
           skippedProcessing: true,
         });
+
+        // Respond with success immediately after the move and event emit
+        res.json({
+          success: true,
+          taskId: taskId,
+          message: "Upload received, file moved directly.",
+        });
       } catch (err) {
         console.error(`[${taskId}] ❌ Error moving file:`, err);
+        // Emit 'error' event
         taskProgressEmitters[taskId].emit("error", {
           message: "MOVE_FAILED",
           error: "Could not move file to uploads directory.",
         });
         safeUnlink(rawTempFilePath, taskId, "Raw temp file (move failed)");
+
+        // Respond with error
+        res.status(500).json({
+          success: false,
+          error: "MOVE_FAILED",
+          message: "Error uploading file directly.",
+          taskId: taskId, // Still return taskId for potential status lookup
+        });
       }
     } else {
       console.log(`[${taskId}] 🔒 Normal password - processing video`);
@@ -401,13 +418,14 @@ app.post(
         safeUnlink(rawTempFilePath, taskId, "Raw temp file");
         safeUnlink(processingTempFilePath, taskId, "Processing temp file");
       });
-    }
 
-    res.json({
-      success: true,
-      taskId: taskId,
-      message: "Upload received, processing started.",
-    });
+      // For normal processing, respond immediately that processing has started
+      res.json({
+        success: true,
+        taskId: taskId,
+        message: "Upload received, processing started.",
+      });
+    }
   }
 );
 
