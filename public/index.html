@@ -2,36 +2,44 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>video hosting</title>
+    <title>Video Hosting</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
     <div class="container">
-      <h1>🎥 video hosting</h1>
+      <h1>🎥 Video Hosting</h1>
       <div id="notification"></div>
       <form id="uploadForm">
         <input
           type="password"
           id="password"
-          placeholder="🔐 password"
+          placeholder="🔐 Password"
           required
         />
-        <input type="file" name="video" accept="video/*" required />
+        <input
+          type="file"
+          name="video"
+          id="videoFile"
+          accept="video/*"
+          required
+        />
         <input
           type="text"
           id="customName"
-          placeholder="📝 custom name (optional)"
+          placeholder="📝 Custom name (optional)"
         />
         <div id="status"></div>
-        <div id="progress-container"><div id="progress-bar"></div></div>
+        <div id="progress-container">
+          <div id="progress-bar" style="width: 0%"></div>
+        </div>
         <button type="submit" id="submitBtn">
-          <span>📤 upload video</span>
+          <span>📤 Upload Video</span>
         </button>
       </form>
 
       <div id="videos">
-        <h2>📹 my videos</h2>
+        <h2>📹 My Videos</h2>
         <div id="videoList"></div>
       </div>
     </div>
@@ -40,49 +48,62 @@
       const form = document.getElementById("uploadForm");
       const passwordInput = document.getElementById("password");
       const progressBar = document.getElementById("progress-bar");
+      const progressContainer = document.getElementById("progress-container");
       const customNameInput = document.getElementById("customName");
       const notification = document.getElementById("notification");
       const status = document.getElementById("status");
       const submitBtn = document.getElementById("submitBtn");
+      const videoFileInput = document.getElementById("videoFile");
 
-      // Function to handle authentication errors
+      let currentProcessedFilename = null; // Para guardar el nombre del archivo procesado para renombrar
+      let sseEventSource = null; // Para la conexión SSE
+
       function handleAuthError(errorType, message) {
-        // Clear input error classes first
         passwordInput.classList.remove("input-error");
-
-        // Add error styling to password input
         passwordInput.classList.add("input-error");
-
-        // Show notification with specific styling
         showNotification(message, true, "auth");
-
-        // Clear password field
         passwordInput.value = "";
-
-        // Focus on password input
-        setTimeout(() => {
-          passwordInput.focus();
-        }, 100);
-
-        // Remove error styling after a few seconds
-        setTimeout(() => {
-          passwordInput.classList.remove("input-error");
-        }, 3000);
+        setTimeout(() => passwordInput.focus(), 100);
+        setTimeout(() => passwordInput.classList.remove("input-error"), 3000);
       }
+
+      function resetFormState() {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = "<span>📤 Upload Video</span>";
+        progressBar.style.width = "0%";
+        progressBar.style.background =
+          "linear-gradient(90deg, #667eea, #764ba2)";
+        progressContainer.style.display = "none"; // Ocultar barra al inicio y fin
+        hideStatus();
+        form.reset(); // Esto también limpia el input de archivo
+        customNameInput.value = "";
+        currentProcessedFilename = null;
+        if (sseEventSource) {
+          sseEventSource.close();
+          sseEventSource = null;
+        }
+      }
+
+      // Inicialmente ocultar la barra de progreso
+      progressContainer.style.display = "none";
 
       form.addEventListener("submit", async (e) => {
         e.preventDefault();
-        const fileInput = form.querySelector('input[type="file"]');
-        const file = fileInput.files[0];
-        if (!file) return;
+        const file = videoFileInput.files[0];
+        if (!file) {
+          showNotification("⚠️ Please select a video file.", true);
+          return;
+        }
 
-        // disable form during upload
         submitBtn.disabled = true;
-        submitBtn.innerHTML = "<span>⏳ processing...</span>";
-
-        // show initial status
-        showStatus("uploading file...", "processing");
+        submitBtn.innerHTML = "<span>⏳ Preparing...</span>";
+        progressContainer.style.display = "block"; // Mostrar barra
         progressBar.style.width = "0%";
+        progressBar.style.background =
+          "linear-gradient(90deg, #667eea, #764ba2)"; // Reset color
+        showStatus("Starting upload...", "info");
+        currentProcessedFilename = null;
+        if (sseEventSource) sseEventSource.close();
 
         const formData = new FormData();
         formData.append("video", file);
@@ -91,139 +112,239 @@
         xhr.open("POST", "/upload", true);
         xhr.setRequestHeader("Authorization", passwordInput.value);
 
-        xhr.upload.onprogress = function (e) {
-          if (e.lengthComputable) {
-            const percent = (e.loaded / e.total) * 100;
+        xhr.upload.onprogress = function (event) {
+          if (event.lengthComputable) {
+            const percent = (event.loaded / event.total) * 100;
             progressBar.style.width = percent + "%";
-            if (percent < 100) {
-              showStatus(
-                `uploading file... ${Math.round(percent)}%`,
-                "processing"
-              );
-            } else {
-              showStatus("processing and verifying video...", "processing");
-            }
+            showStatus(
+              `Uploading file... ${Math.round(percent)}%`,
+              "processing"
+            );
           }
         };
 
         xhr.onload = async function () {
+          submitBtn.innerHTML = "<span>⏳ Processing...</span>"; // Cambiar texto del botón después de subir
+
           try {
             const response = JSON.parse(xhr.responseText);
 
-            // Check for authentication errors first
             if (xhr.status === 401) {
-              if (response.error === "MISSING_PASSWORD") {
+              if (response.error === "MISSING_PASSWORD")
                 handleAuthError(
                   "MISSING_PASSWORD",
-                  "🔒 please enter a password"
+                  "🔒 Please enter a password"
                 );
-              } else if (response.error === "WRONG_PASSWORD") {
-                handleAuthError("WRONG_PASSWORD", "❌ wrong password");
-              } else {
-                handleAuthError("AUTH_ERROR", "🚫 authentication error");
-              }
-
-              showStatus("❌ authentication failed", "error");
+              else if (response.error === "WRONG_PASSWORD")
+                handleAuthError("WRONG_PASSWORD", "❌ Wrong password");
+              else handleAuthError("AUTH_ERROR", "🚫 Authentication error");
+              showStatus("❌ Authentication failed", "error");
               progressBar.style.background = "#ef4444";
-
-              // re-enable form
+              resetFormState(); // Parcial, mantener contraseña podría ser útil pero por ahora reset completo
+              passwordInput.value =
+                xhr.status === 401 ? "" : passwordInput.value; // Limpiar solo si es error de pass
               submitBtn.disabled = false;
-              submitBtn.innerHTML = "<span>📤 upload video</span>";
+              submitBtn.innerHTML = "<span>📤 Upload Video</span>";
               return;
             }
 
-            if (response.success) {
-              showStatus("video processed successfully", "success");
-              showNotification("✅ video uploaded and processed successfully");
-              progressBar.style.width = "100%";
-              progressBar.style.background = "#22c55e";
-
-              // try to rename if custom name was provided
-              const customName = customNameInput.value.trim();
-              if (customName) {
-                try {
-                  const renameRes = await fetch("/rename", {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                      Authorization: passwordInput.value,
-                    },
-                    body: JSON.stringify({
-                      original: response.filename,
-                      newName: customName,
-                    }),
-                  });
-
-                  if (renameRes.status === 401) {
-                    const renameError = await renameRes.json();
-                    if (renameError.error === "WRONG_PASSWORD") {
-                      handleAuthError(
-                        "WRONG_PASSWORD",
-                        "❌ wrong password for renaming"
-                      );
-                    }
-                    return;
-                  }
-
-                  const renameResponse = await renameRes.json();
-                  if (renameResponse.success) {
-                    showNotification("📝 " + renameResponse.message);
-                  } else {
-                    showNotification(
-                      "⚠️ error renaming: " + renameResponse.error,
-                      true
-                    );
-                  }
-                } catch (renameError) {
-                  showNotification("⚠️ error renaming file", true);
-                }
-              }
-
-              // reload video list
-              await loadVideos();
-
-              // clear form
-              form.reset();
-              customNameInput.value = "";
-            } else {
-              // processing error
-              showStatus("error: " + response.error, "error");
-              showNotification("❌ error: " + response.error, true);
+            if (xhr.status >= 400) {
+              // Otros errores del servidor al subir
+              showStatus(
+                `Error: ${response.message || "Upload failed"}`,
+                "error"
+              );
+              showNotification(
+                `❌ ${response.message || "Upload failed"}`,
+                true
+              );
               progressBar.style.background = "#ef4444";
+              resetFormState();
+              return;
+            }
+
+            if (response.success && response.taskId) {
+              showStatus(
+                "Upload complete. Initializing processing...",
+                "processing"
+              );
+              progressBar.style.width = "100%"; // Upload visualmente completo
+
+              // Iniciar escucha de eventos SSE para el progreso del procesamiento
+              sseEventSource = new EventSource(
+                `/processing-status/${response.taskId}`
+              );
+
+              sseEventSource.onmessage = function (event) {
+                const progressData = JSON.parse(event.data);
+                // console.log("SSE Data:", progressData);
+
+                if (progressData.stage === "probing") {
+                  showStatus(
+                    progressData.message || "Analyzing video...",
+                    "processing"
+                  );
+                  progressBar.style.width = "0%"; // Resetear barra para etapa de procesamiento
+                } else if (progressData.stage === "probed_success") {
+                  showStatus(
+                    progressData.message ||
+                      "Analysis complete. Starting conversion...",
+                    "processing"
+                  );
+                  progressBar.style.width = "0%"; // O un pequeño % inicial
+                } else if (progressData.stage === "processing") {
+                  progressBar.style.width = (progressData.percent || 0) + "%";
+                  showStatus(
+                    progressData.message ||
+                      `Processing... ${progressData.percent || 0}%`,
+                    "processing"
+                  );
+                } else if (progressData.stage === "done") {
+                  currentProcessedFilename = progressData.filename;
+                  showStatus(
+                    progressData.message || "Video processed successfully!",
+                    "success"
+                  );
+                  showNotification(
+                    `✅ ${
+                      progressData.message || "Video processed successfully!"
+                    }`
+                  );
+                  progressBar.style.width = "100%";
+                  progressBar.style.background = "#22c55e";
+                  sseEventSource.close();
+
+                  handleRenameAndFinalize();
+                } else if (progressData.stage === "error") {
+                  showStatus(
+                    `Error: ${progressData.error || "Processing failed"}`,
+                    "error"
+                  );
+                  showNotification(
+                    `❌ ${
+                      progressData.error ||
+                      "An error occurred during processing."
+                    }`,
+                    true
+                  );
+                  progressBar.style.background = "#ef4444";
+                  sseEventSource.close();
+                  resetFormState(); // Resetear todo
+                }
+              };
+
+              sseEventSource.onerror = function () {
+                showStatus(
+                  "Error connecting to processing status updates.",
+                  "error"
+                );
+                showNotification(
+                  "🔌 Connection error with server for status updates.",
+                  true
+                );
+                progressBar.style.background = "#ef4444";
+                sseEventSource.close();
+                resetFormState();
+              };
+            } else {
+              // Si /upload no devuelve success o taskId
+              showStatus(
+                "Error: Could not initialize video processing.",
+                "error"
+              );
+              showNotification(
+                `❌ ${response.message || "Failed to start processing."}`,
+                true
+              );
+              progressBar.style.background = "#ef4444";
+              resetFormState();
             }
           } catch (parseError) {
-            showStatus("error processing server response", "error");
-            showNotification("❌ error processing server response", true);
+            console.error(
+              "Parse error:",
+              parseError,
+              "Response text:",
+              xhr.responseText
+            );
+            showStatus("Error processing server response", "error");
+            showNotification("❌ Error processing server response", true);
             progressBar.style.background = "#ef4444";
+            resetFormState();
           }
-
-          // re-enable form
-          submitBtn.disabled = false;
-          submitBtn.innerHTML = "<span>📤 upload video</span>";
-
-          // hide progress bar after a few seconds
-          setTimeout(() => {
-            progressBar.style.width = "0%";
-            progressBar.style.background =
-              "linear-gradient(90deg, #667eea, #764ba2)";
-            hideStatus();
-          }, 3000);
         };
 
         xhr.onerror = function () {
-          showStatus("❌ connection error", "error");
-          showNotification("🔌 connection error with server", true);
-          submitBtn.disabled = false;
-          submitBtn.innerHTML = "<span>📤 upload video</span>";
+          showStatus("❌ Connection error during upload", "error");
+          showNotification("🔌 Connection error with server", true);
           progressBar.style.background = "#ef4444";
+          resetFormState();
         };
 
         xhr.send(formData);
       });
 
+      async function handleRenameAndFinalize() {
+        const customName = customNameInput.value.trim();
+        if (customName && currentProcessedFilename) {
+          showStatus("Renaming file...", "processing");
+          try {
+            const renameRes = await fetch("/rename", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: passwordInput.value,
+              },
+              body: JSON.stringify({
+                original: currentProcessedFilename,
+                newName: customName,
+              }),
+            });
+
+            // Autenticación para renombrar
+            if (renameRes.status === 401) {
+              const renameAuthError = await renameRes.json();
+              if (renameAuthError.error === "WRONG_PASSWORD")
+                handleAuthError(
+                  "WRONG_PASSWORD",
+                  "❌ Wrong password for renaming"
+                );
+              else handleAuthError("AUTH_ERROR", "🚫 Auth error during rename");
+              showStatus("❌ Rename auth failed", "error");
+              // No resetear todo, solo el estado de error de auth
+              submitBtn.disabled = false;
+              submitBtn.innerHTML = "<span>📤 Upload Video</span>";
+              return; // Detener aquí para que el usuario pueda reintentar o corregir
+            }
+
+            const renameResponse = await renameRes.json();
+            if (renameResponse.success) {
+              showNotification(`📝 ${renameResponse.message}`);
+              currentProcessedFilename = renameResponse.newName; // Actualizar con el nuevo nombre
+            } else {
+              showNotification(
+                `⚠️ Error renaming: ${renameResponse.error}`,
+                true
+              );
+            }
+          } catch (renameError) {
+            console.error("Rename fetch error:", renameError);
+            showNotification(
+              "⚠️ Network error while trying to rename file",
+              true
+            );
+          }
+        }
+
+        await loadVideos();
+        // Resetear completamente después de un éxito y posible renombramiento
+        setTimeout(() => {
+          resetFormState();
+        }, 2000); // Un pequeño delay para que el usuario vea el mensaje final
+      }
+
       function showStatus(message, type) {
         status.textContent = message;
-        status.className = `status-${type}`;
+        status.className = `status-${type}`; // Asegúrate de tener clases CSS: status-info, status-processing, status-success, status-error
         status.style.display = "block";
       }
 
@@ -234,15 +355,14 @@
       function showNotification(msg, isError = false, errorType = null) {
         notification.textContent = msg;
         notification.className = "";
-
         if (isError) {
-          if (errorType === "auth") {
-            notification.className = "notification-auth-error";
-          } else {
-            notification.className = "notification-error";
-          }
+          notification.className =
+            errorType === "auth"
+              ? "notification-auth-error"
+              : "notification-error";
+        } else {
+          notification.className = "notification-success"; // Clase para notificaciones de éxito
         }
-
         notification.style.display = "block";
         setTimeout(() => {
           notification.style.display = "none";
@@ -253,33 +373,37 @@
       async function loadVideos() {
         try {
           const res = await fetch("/videos");
+          if (!res.ok) {
+            throw new Error(`Failed to load videos: ${res.statusText}`);
+          }
           const files = await res.json();
           const container = document.getElementById("videoList");
           container.innerHTML = "";
 
           if (files.length === 0) {
             container.innerHTML =
-              "<p style='text-align: center; color: #9ca3af; font-style: italic;'>📂 no videos available</p>";
+              "<p style='text-align: center; color: #9ca3af; font-style: italic;'>📂 No videos available</p>";
             return;
           }
 
           files.forEach((file) => {
             const div = document.createElement("div");
-            div.className = "video-name";
+            div.className = "video-name"; // Asegúrate que esta clase exista en tu CSS
             const link = document.createElement("a");
-            link.href = "/video/" + file;
+            link.href = `/video/${encodeURIComponent(file)}`;
             link.target = "_blank";
-            link.innerHTML = `🎬 ${file}`;
+            link.innerHTML = `🎬 ${file}`; // Usar textContent es más seguro si los nombres de archivo pudieran tener HTML
             div.appendChild(link);
             container.appendChild(div);
           });
         } catch (error) {
-          console.error("error loading videos:", error);
-          showNotification("❌ error loading video list", true);
+          console.error("Error loading videos:", error);
+          showNotification(
+            `❌ Error loading video list: ${error.message}`,
+            true
+          );
         }
       }
-
-      // load videos on start
       loadVideos();
     </script>
   </body>

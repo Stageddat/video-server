@@ -4,7 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const { exec, spawn } = require("child_process");
 const dotenv = require("dotenv");
-const crypto = require("crypto");
+const EventEmitter = require("events");
 
 dotenv.config();
 const app = express();
@@ -14,23 +14,17 @@ const PASSWORD = process.env.MASTER_PASSWORD;
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// directories for temporary and final files
 const TEMP_DIR = "temp/";
 const UPLOADS_DIR = "uploads/";
-const THUMBS_DIR = "thumbnails/";
 
-// create directories if they don't exist
 if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR);
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR);
-if (!fs.existsSync(THUMBS_DIR)) fs.mkdirSync(THUMBS_DIR);
 
-// store active processing sessions
-const processingStatus = new Map();
+const taskProgressEmitters = {};
 
 function authMiddleware(req, res, next) {
   const providedPassword = req.headers.authorization;
   console.log("🔐 auth check - password provided:", !!providedPassword);
-
   if (!providedPassword) {
     console.log("❌ auth failed: no password provided");
     return res.status(401).json({
@@ -39,7 +33,6 @@ function authMiddleware(req, res, next) {
       message: "password required",
     });
   }
-
   if (providedPassword !== PASSWORD) {
     console.log("❌ auth failed: wrong password");
     return res.status(401).json({
@@ -48,234 +41,278 @@ function authMiddleware(req, res, next) {
       message: "wrong password",
     });
   }
-
   console.log("✅ auth successful");
   next();
-}
-
-// generate random filename
-function generateRandomName() {
-  return crypto.randomBytes(16).toString("hex");
 }
 
 const storage = multer.diskStorage({
   destination: TEMP_DIR,
   filename: (req, file, cb) => {
-    const randomName = generateRandomName();
-    const ext = path.extname(file.originalname);
-    const filename = `${randomName}${ext}`;
-    console.log("📁 storing temp file:", filename);
-    cb(null, filename);
+    const timestamp = Date.now();
+    const uniqueSuffix = Math.random().toString(36).substring(2, 8);
+    const ext = path.extname(file.originalname) || ".mp4"; // Ensure extension
+    // This filename is for the *raw* uploaded file in TEMP_DIR
+    const rawTempFilename = `raw_${timestamp}_${uniqueSuffix}${ext}`;
+    console.log("📁 Storing raw uploaded file in temp as:", rawTempFilename);
+    cb(null, rawTempFilename);
   },
 });
 const upload = multer({ storage });
 
 app.use(express.static("public"));
 
-// generate thumbnail for video
-function generateThumbnail(videoPath, outputPath) {
-  return new Promise((resolve, reject) => {
-    console.log("🖼️ generating thumbnail for:", videoPath);
-
-    const command = `ffmpeg -i "${videoPath}" -ss 00:00:01 -vframes 1 -vf "scale=320:240:force_original_aspect_ratio=decrease,pad=320:240:(ow-iw)/2:(oh-ih)/2" "${outputPath}" -y`;
-
-    exec(command, (error, stdout, stderr) => {
-      if (error) {
-        console.error("❌ thumbnail generation failed:", error.message);
-        resolve(false); // don't fail the whole process if thumbnail fails
-      } else {
-        console.log("✅ thumbnail generated successfully");
-        resolve(true);
-      }
-    });
-  });
+// Utility to safely clean up files
+function safeUnlink(filePath, taskId, fileDescription) {
+  if (fs.existsSync(filePath)) {
+    try {
+      fs.unlinkSync(filePath);
+      console.log(`[${taskId}] 🧹 ${fileDescription} deleted: ${filePath}`);
+    } catch (err) {
+      console.error(
+        `[${taskId}] ⚠️ Error deleting ${fileDescription} ${filePath}:`,
+        err.message
+      );
+    }
+  }
 }
 
-// function to process video with progress tracking
-function processVideoWithProgress(
-  sessionId,
-  inputPath,
-  outputPath,
-  originalFilename,
-  customName
+async function processVideo(
+  rawTempFilePath, // Full path to the raw uploaded file in TEMP_DIR
+  processingTempFilePath, // Full path for ffmpeg's output, also in TEMP_DIR
+  finalNameForUploads, // Just the filename (e.g., "12345.mp4") for UPLOADS_DIR
+  taskId,
+  originalFilename // Original name of the uploaded file for logging/metadata
 ) {
-  return new Promise((resolve, reject) => {
-    console.log("🎬 starting video processing with progress tracking...");
-    console.log("📂 input path:", inputPath);
-    console.log("📂 output path:", outputPath);
+  console.log(
+    `[${taskId}] 🎬 Starting video processing for original: ${originalFilename}`
+  );
+  const emitter = taskProgressEmitters[taskId];
+  if (!emitter) {
+    console.error(`[${taskId}] ❌ No emitter found. Aborting processing.`);
+    safeUnlink(rawTempFilePath, taskId, "Raw temp input file (no emitter)");
+    return;
+  }
 
-    // initialize processing status
-    processingStatus.set(sessionId, {
-      phase: "validating",
-      progress: 0,
-      message: "validating video file...",
+  try {
+    if (!fs.existsSync(rawTempFilePath)) {
+      console.log(
+        `[${taskId}] ❌ Raw input file doesn't exist:`,
+        rawTempFilePath
+      );
+      emitter.emit("error", {
+        message: "INPUT_NOT_FOUND",
+        error: "Input file for processing not found.",
+      });
+      return;
+    }
+    emitter.emit("progress", {
+      stage: "probing",
+      message: "Analyzing video...",
     });
 
-    // check if input file exists
-    if (!fs.existsSync(inputPath)) {
-      console.log("❌ input file doesn't exist:", inputPath);
-      processingStatus.delete(sessionId);
-      return reject(new Error("INPUT_NOT_FOUND"));
+    const probeCommand = `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${rawTempFilePath}"`;
+    console.log(`[${taskId}] 🔍 Running ffprobe:`, probeCommand);
+
+    let totalDuration = 0;
+    try {
+      const stdout = await new Promise((resolve, reject) => {
+        exec(probeCommand, (err, stdout, stderr) => {
+          if (err) {
+            console.error(`[${taskId}] ❌ ffprobe error:`, err.message, stderr);
+            return reject(new Error("PROBE_FAILED"));
+          }
+          resolve(stdout.trim());
+        });
+      });
+      totalDuration = parseFloat(stdout);
+      if (isNaN(totalDuration) || totalDuration <= 0)
+        throw new Error("INVALID_DURATION");
+      console.log(
+        `[${taskId}] ✅ ffprobe successful, duration:`,
+        totalDuration,
+        "seconds"
+      );
+      emitter.emit("progress", {
+        stage: "probed_success",
+        message: `Video duration: ${totalDuration.toFixed(
+          2
+        )}s. Starting conversion...`,
+        duration: totalDuration,
+      });
+    } catch (probeError) {
+      console.error(
+        `[${taskId}] ❌ Error getting video duration:`,
+        probeError.message
+      );
+      emitter.emit("error", {
+        message:
+          probeError.message === "INVALID_DURATION"
+            ? "INVALID_DURATION"
+            : "CORRUPTED",
+        error: "Could not determine video duration or file is corrupted.",
+      });
+      safeUnlink(rawTempFilePath, taskId, "Raw temp input file (probe error)");
+      return;
     }
 
-    const inputStats = fs.statSync(inputPath);
-    console.log("📊 input file size:", inputStats.size, "bytes");
+    const ffmpegArgs = [
+      "-i",
+      rawTempFilePath,
+      "-c:v",
+      "libx264",
+      "-preset",
+      "fast",
+      "-c:a",
+      "aac",
+      "-strict",
+      "experimental",
+      "-movflags",
+      "+faststart",
+      processingTempFilePath, // Output to the "processing" temp file
+      "-y",
+    ];
+    console.log(
+      `[${taskId}] 🔄 Running ffmpeg: ffmpeg ${ffmpegArgs.join(" ")}`
+    );
+    const ffmpegProcess = spawn("ffmpeg", ffmpegArgs);
+    const startTime = Date.now();
 
-    // first check file integrity with ffprobe
-    const probeCommand = `ffprobe -v error -show_entries format=duration -of csv=p=0 "${inputPath}"`;
-    console.log("🔍 running ffprobe command:", probeCommand);
-
-    processingStatus.set(sessionId, {
-      phase: "validating",
-      progress: 10,
-      message: "checking video integrity...",
-    });
-
-    exec(probeCommand, (err, stdout, stderr) => {
-      if (err) {
-        console.error("❌ ffprobe error:", err.message);
-        processingStatus.delete(sessionId);
-        return reject(new Error("CORRUPTED"));
-      }
-
-      const duration = parseFloat(stdout.trim());
-      console.log("✅ video duration:", duration, "seconds");
-
-      processingStatus.set(sessionId, {
-        phase: "processing",
-        progress: 20,
-        message: "converting video format...",
-        duration: duration,
-      });
-
-      // process video with ffmpeg and track progress
-      const ffmpegArgs = [
-        "-i",
-        inputPath,
-        "-c:v",
-        "libx264",
-        "-preset",
-        "fast",
-        "-c:a",
-        "aac",
-        "-strict",
-        "experimental",
-        "-movflags",
-        "+faststart",
-        "-progress",
-        "pipe:1",
-        "-y",
-        outputPath,
-      ];
-
-      console.log("🔄 starting ffmpeg with args:", ffmpegArgs.join(" "));
-
-      const ffmpeg = spawn("ffmpeg", ffmpegArgs);
-      let ffmpegOutput = "";
-
-      ffmpeg.stdout.on("data", (data) => {
-        ffmpegOutput += data.toString();
-
-        // parse ffmpeg progress output
-        const lines = ffmpegOutput.split("\n");
-        let currentTime = 0;
-
-        for (const line of lines) {
-          if (line.startsWith("out_time_us=")) {
-            const timeUs = parseInt(line.split("=")[1]);
-            currentTime = timeUs / 1000000; // convert to seconds
-          }
-        }
-
-        if (duration > 0 && currentTime > 0) {
-          const progress = Math.min(
-            Math.round((currentTime / duration) * 100),
-            95
-          );
-          processingStatus.set(sessionId, {
-            phase: "processing",
-            progress: Math.max(20, progress),
-            message: `converting video... ${Math.round(
-              currentTime
-            )}s / ${Math.round(duration)}s`,
-            duration: duration,
-          });
-        }
-      });
-
-      ffmpeg.stderr.on("data", (data) => {
-        // ffmpeg sends progress info to stderr too
-        console.log("ffmpeg stderr:", data.toString());
-      });
-
-      ffmpeg.on("close", async (code) => {
-        if (code !== 0) {
-          console.error("❌ ffmpeg conversion failed with code:", code);
-          processingStatus.delete(sessionId);
-          return reject(new Error("CONVERSION_FAILED"));
-        }
-
-        console.log("✅ ffmpeg conversion completed");
-
-        // verify output file
-        if (!fs.existsSync(outputPath)) {
-          console.log("❌ output file was not created:", outputPath);
-          processingStatus.delete(sessionId);
-          return reject(new Error("OUTPUT_INVALID"));
-        }
-
-        const outputStats = fs.statSync(outputPath);
-        console.log("📊 output file size:", outputStats.size, "bytes");
-
-        if (outputStats.size === 0) {
-          console.log("❌ output file is empty");
-          processingStatus.delete(sessionId);
-          return reject(new Error("OUTPUT_INVALID"));
-        }
-
-        // generate thumbnail
-        processingStatus.set(sessionId, {
-          phase: "thumbnail",
-          progress: 90,
-          message: "generating thumbnail...",
-        });
-
-        const finalName = customName
-          ? customName.replace(/[^a-zA-Z0-9-_\s]/g, "_").trim() + ".mp4"
-          : path.parse(originalFilename).name + ".mp4";
-
-        const finalPath = path.join(UPLOADS_DIR, finalName);
-        const thumbnailPath = path.join(
-          THUMBS_DIR,
-          finalName.replace(".mp4", ".jpg")
+    ffmpegProcess.stderr.on("data", (data) => {
+      const stdErrStr = data.toString();
+      const timeMatch = stdErrStr.match(
+        /time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})/
+      );
+      if (timeMatch) {
+        const hours = parseInt(timeMatch[1], 10),
+          minutes = parseInt(timeMatch[2], 10),
+          seconds = parseInt(timeMatch[3], 10),
+          ms = parseInt(timeMatch[4], 10) * 10;
+        const currentTime = hours * 3600 + minutes * 60 + seconds + ms / 1000;
+        const percentage = Math.min(
+          100,
+          Math.max(0, (currentTime / totalDuration) * 100)
         );
-
-        console.log("📂 moving to final path:", finalPath);
-
-        try {
-          // move processed video to uploads directory
-          fs.renameSync(outputPath, finalPath);
-
-          // generate thumbnail
-          await generateThumbnail(finalPath, thumbnailPath);
-
-          processingStatus.set(sessionId, {
-            phase: "completed",
-            progress: 100,
-            message: "processing completed!",
-            filename: finalName,
-          });
-
-          console.log("🎉 video processing completed successfully!");
-          resolve({ filename: finalName, finalPath });
-        } catch (moveError) {
-          console.error("❌ error moving file:", moveError.message);
-          processingStatus.delete(sessionId);
-          reject(new Error("FILE_MOVE_FAILED"));
-        }
-      });
+        emitter.emit("progress", {
+          stage: "processing",
+          percent: percentage.toFixed(2),
+          message: `Processing... ${percentage.toFixed(2)}%`,
+        });
+      }
     });
-  });
+
+    ffmpegProcess.on("close", (code) => {
+      const processingTime = Date.now() - startTime;
+      console.log(
+        `[${taskId}] ⏱️ ffmpeg processing took:`,
+        processingTime,
+        "ms. Exit code:",
+        code
+      );
+
+      if (code === 0) {
+        if (
+          !fs.existsSync(processingTempFilePath) ||
+          fs.statSync(processingTempFilePath).size === 0
+        ) {
+          console.log(
+            `[${taskId}] ❌ Processed temp file not created or empty:`,
+            processingTempFilePath
+          );
+          emitter.emit("error", {
+            message: "OUTPUT_INVALID",
+            error: "Processed video is not valid.",
+          });
+          safeUnlink(
+            rawTempFilePath,
+            taskId,
+            "Raw temp input file (output invalid)"
+          );
+          safeUnlink(
+            processingTempFilePath,
+            taskId,
+            "Invalid processed temp file"
+          );
+          return;
+        }
+
+        const finalUploadsPath = path.join(UPLOADS_DIR, finalNameForUploads);
+        try {
+          fs.renameSync(processingTempFilePath, finalUploadsPath); // Move to UPLOADS_DIR
+          console.log(
+            `[${taskId}] ✅ Processed file moved to: ${finalUploadsPath}`
+          );
+          emitter.emit("done", {
+            filename: finalNameForUploads,
+            message: "Video processed successfully.",
+          });
+        } catch (renameError) {
+          console.error(
+            `[${taskId}] ❌ Error moving processed file to uploads:`,
+            renameError
+          );
+          emitter.emit("error", {
+            message: "MOVE_FAILED",
+            error: "Could not move processed video to final destination.",
+          });
+          safeUnlink(
+            processingTempFilePath,
+            taskId,
+            "Processed temp file (move failed)"
+          ); // processingTempFilePath still exists
+        }
+      } else {
+        // ffmpeg failed
+        console.error(
+          `[${taskId}] ❌ ffmpeg conversion failed with code ${code}`
+        );
+        emitter.emit("error", {
+          message: "CONVERSION_FAILED",
+          error: "Video conversion failed.",
+        });
+        safeUnlink(
+          processingTempFilePath,
+          taskId,
+          "Failed processed temp file"
+        );
+      }
+      // Always cleanup the raw temp file after attempting processing (success or ffmpeg failure)
+      safeUnlink(rawTempFilePath, taskId, "Raw temp input file (post-process)");
+    });
+
+    ffmpegProcess.on("error", (err) => {
+      console.error(`[${taskId}] ❌ Failed to start ffmpeg process:`, err);
+      emitter.emit("error", {
+        message: "FFMPEG_SPAWN_ERROR",
+        error: "Could not start video processing.",
+      });
+      safeUnlink(
+        rawTempFilePath,
+        taskId,
+        "Raw temp input file (ffmpeg spawn error)"
+      );
+      safeUnlink(
+        processingTempFilePath,
+        taskId,
+        "Processing temp file (ffmpeg spawn error)"
+      );
+    });
+  } catch (error) {
+    console.error(
+      `[${taskId}] ❌ General error in processVideo:`,
+      error.message,
+      error.stack
+    );
+    emitter.emit("error", {
+      message: "PROCESS_VIDEO_ERROR",
+      error: "An unexpected error occurred during video processing setup.",
+    });
+    safeUnlink(rawTempFilePath, taskId, "Raw temp input file (general error)");
+    safeUnlink(
+      processingTempFilePath,
+      taskId,
+      "Processing temp file (general error)"
+    );
+  }
 }
 
 app.post(
@@ -283,181 +320,234 @@ app.post(
   authMiddleware,
   upload.single("video"),
   async (req, res) => {
-    console.log("\n🚀 upload request received");
-    console.log("📁 original filename:", req.file?.originalname);
-    console.log("📊 file size:", req.file?.size, "bytes");
-    console.log("🏷️ mime type:", req.file?.mimetype);
-
-    const sessionId = generateRandomName();
-    const tempPath = req.file.path;
-    const randomName = generateRandomName();
-    const processingPath = path.join(TEMP_DIR, `processing-${randomName}.mp4`);
-
-    console.log("🆔 session ID:", sessionId);
-    console.log("📂 temp file path:", tempPath);
-    console.log("📂 processing path:", processingPath);
-
-    // return session ID immediately for progress tracking
-    res.json({
-      success: true,
-      sessionId: sessionId,
-      message: "upload received, processing started",
-    });
-
-    try {
-      // process video asynchronously
-      await processVideoWithProgress(
-        sessionId,
-        tempPath,
-        processingPath,
-        req.file.originalname,
-        req.body.customName
-      );
-
-      console.log("🧹 cleaning up temp file...");
-      if (fs.existsSync(tempPath)) {
-        fs.unlinkSync(tempPath);
-        console.log("✅ temp file deleted");
-      }
-    } catch (error) {
-      console.log("❌ processing failed with error:", error.message);
-
-      // cleanup on error
-      [tempPath, processingPath].forEach((filePath) => {
-        if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
-          console.log("🧹 cleaned up:", filePath);
-        }
-      });
-
-      processingStatus.set(sessionId, {
-        phase: "error",
-        progress: 0,
-        message: `error: ${error.message}`,
-        error: true,
+    console.log("\n🚀 Upload request received");
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: "NO_FILE",
+        message: "No video file provided.",
       });
     }
+
+    const rawTempFilePath = req.file.path; // Full path to raw file in TEMP_DIR (e.g., temp/raw_timestamp_suffix.mp4)
+    const originalFilename = req.file.originalname;
+
+    console.log(
+      `📁 Original filename: ${originalFilename}, Raw temp stored at: ${rawTempFilePath}`
+    );
+    console.log(
+      `📊 File size: ${req.file.size} bytes, Mime type: ${req.file.mimetype}`
+    );
+
+    const taskId =
+      Date.now().toString() + Math.random().toString(36).substring(2, 7);
+
+    // Define the name for the "processing" output file in TEMP_DIR
+    const processingFileExt = path.extname(originalFilename) || ".mp4";
+    const processingFileName = `processing_${taskId}${processingFileExt}`;
+    const processingTempFilePath = path.join(TEMP_DIR, processingFileName);
+
+    // Define the final name for the file once it's in UPLOADS_DIR
+    const finalTimestamp = Date.now(); // Use a new timestamp for the final processed file
+    const finalNameForUploads = `${finalTimestamp}.mp4`;
+
+    console.log(`[${taskId}] 📂 Raw temp file: ${rawTempFilePath}`);
+    console.log(
+      `[${taskId}] 🌀 Processing temp output file: ${processingTempFilePath}`
+    );
+    console.log(
+      `[${taskId}] 🏁 Final uploads file name: ${finalNameForUploads}`
+    );
+
+    taskProgressEmitters[taskId] = new EventEmitter();
+
+    processVideo(
+      rawTempFilePath,
+      processingTempFilePath,
+      finalNameForUploads,
+      taskId,
+      originalFilename
+    ).catch((err) => {
+      console.error(
+        `[${taskId}] ❌ Uncaught error in processVideo async wrapper:`,
+        err
+      );
+      if (taskProgressEmitters[taskId]) {
+        taskProgressEmitters[taskId].emit("error", {
+          message: "ASYNC_PROCESS_ERROR",
+          error: "Critical error in video processing.",
+        });
+      }
+      // Ensure cleanup if processVideo itself throws an unhandled error before ffmpeg starts
+      safeUnlink(
+        rawTempFilePath,
+        taskId,
+        "Raw temp file (async wrapper error)"
+      );
+      safeUnlink(
+        processingTempFilePath,
+        taskId,
+        "Processing temp file (async wrapper error)"
+      );
+    });
+
+    res.json({
+      success: true,
+      taskId: taskId,
+      message: "Upload received, processing started.",
+    });
   }
 );
 
-// endpoint to check processing progress
-app.get("/progress/:sessionId", (req, res) => {
-  const sessionId = req.params.sessionId;
-  const status = processingStatus.get(sessionId);
+app.get("/processing-status/:taskId", (req, res) => {
+  const { taskId } = req.params;
+  console.log(`[${taskId}] 🛰️ Client connected for status updates.`);
 
-  if (!status) {
-    return res.status(404).json({
-      success: false,
-      error: "session not found",
-    });
+  const emitter = taskProgressEmitters[taskId];
+  if (!emitter) {
+    console.log(`[${taskId}] 🛰️ No emitter for task ID. Sending 404.`);
+    return res
+      .status(404)
+      .json({ error: "Task not found or already completed." });
   }
 
-  res.json({
-    success: true,
-    ...status,
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
   });
+  res.write("\n");
 
-  // clean up completed or errored sessions after sending response
-  if (status.phase === "completed" || status.phase === "error") {
-    setTimeout(() => {
-      processingStatus.delete(sessionId);
-    }, 5000);
+  const onProgress = (data) => {
+    // console.log(`[${taskId}] 🛰️ Sending progress:`, data); // Verbose
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+
+  const onDone = (data) => {
+    console.log(`[${taskId}] 🛰️ Sending done:`, data);
+    res.write(`data: ${JSON.stringify({ ...data, stage: "done" })}\n\n`);
+    res.end();
+    cleanupTaskEmitter(taskId, {
+      progress: onProgress,
+      done: onDone,
+      error: onError,
+    });
+  };
+
+  const onError = (data) => {
+    console.log(`[${taskId}] 🛰️ Sending error:`, data);
+    res.write(`data: ${JSON.stringify({ ...data, stage: "error" })}\n\n`);
+    res.end();
+    cleanupTaskEmitter(taskId, {
+      progress: onProgress,
+      done: onDone,
+      error: onError,
+    });
+  };
+
+  function cleanupTaskEmitter(id, listeners) {
+    if (taskProgressEmitters[id]) {
+      taskProgressEmitters[id].removeListener("progress", listeners.progress);
+      taskProgressEmitters[id].removeListener("done", listeners.done);
+      taskProgressEmitters[id].removeListener("error", listeners.error);
+      if (
+        taskProgressEmitters[id].listenerCount("progress") === 0 &&
+        taskProgressEmitters[id].listenerCount("done") === 0 &&
+        taskProgressEmitters[id].listenerCount("error") === 0
+      ) {
+        console.log(`[${id}] All listeners removed, deleting emitter.`);
+        delete taskProgressEmitters[id];
+      }
+    }
   }
+
+  emitter.on("progress", onProgress);
+  emitter.on("done", onDone);
+  emitter.on("error", onError);
+
+  req.on("close", () => {
+    console.log(`[${taskId}] 🛰️ Client disconnected.`);
+    cleanupTaskEmitter(taskId, {
+      progress: onProgress,
+      done: onDone,
+      error: onError,
+    });
+  });
 });
+
+// --- Rutas existentes (rename, videos, video/:filename, cleanup) ---
+// Estas rutas no necesitan cambios funcionales para esta modificación.
+// El endpoint /rename seguirá funcionando con el `filename` que se obtiene del evento 'done' del SSE.
 
 app.post("/rename", authMiddleware, (req, res) => {
   console.log("\n📝 rename request:", req.body);
   const { original, newName } = req.body;
   const oldPath = path.join(UPLOADS_DIR, original);
-  const safeNewName = newName.replace(/[^a-zA-Z0-9-_\s]/g, "_").trim();
-  const finalNewName = safeNewName + ".mp4";
+  const safeNewName = newName.replace(/[^a-zA-Z0-9-_\s.]/g, "_").trim(); // Allow dots in safe name
+  let finalNewName = safeNewName;
+  if (!finalNewName.toLowerCase().endsWith(".mp4")) {
+    // Ensure .mp4 extension
+    finalNewName += ".mp4";
+  }
   const newPath = path.join(UPLOADS_DIR, finalNewName);
-
-  // also rename thumbnail
-  const oldThumbPath = path.join(THUMBS_DIR, original.replace(".mp4", ".jpg"));
-  const newThumbPath = path.join(
-    THUMBS_DIR,
-    finalNewName.replace(".mp4", ".jpg")
-  );
 
   console.log("📂 old path:", oldPath);
   console.log("📂 new path:", newPath);
 
+  if (oldPath === newPath) {
+    console.log(
+      "ℹ️ rename request: old and new names are the same after sanitization."
+    );
+    return res.json({
+      success: true,
+      newName: finalNewName,
+      message: `File already has the name: ${finalNewName}`,
+    });
+  }
+
   if (!fs.existsSync(oldPath)) {
-    console.log("❌ original file not found");
+    console.log("❌ original file not found for rename:", oldPath);
     return res.status(404).json({
       success: false,
-      error: "original file not found",
+      error: "Original file not found. Was it processed correctly?",
     });
   }
 
   try {
     fs.renameSync(oldPath, newPath);
-
-    // rename thumbnail if it exists
-    if (fs.existsSync(oldThumbPath)) {
-      fs.renameSync(oldThumbPath, newThumbPath);
-      console.log("✅ thumbnail also renamed");
-    }
-
-    console.log("✅ file renamed successfully");
+    console.log("✅ file renamed successfully to:", finalNewName);
     res.json({
       success: true,
       newName: finalNewName,
-      message: `name changed to: ${finalNewName}`,
+      message: `Name changed to: ${finalNewName}`,
     });
   } catch (error) {
     console.log("❌ rename error:", error.message);
-    res.status(500).json({
-      success: false,
-      error: "error renaming file",
-    });
+    res.status(500).json({ success: false, error: "Error renaming file" });
   }
 });
 
 app.get("/videos", (req, res) => {
   console.log("\n📋 listing videos request");
   try {
-    const files = fs.readdirSync(UPLOADS_DIR).filter((f) => f.endsWith(".mp4"));
-
-    // add thumbnail info
-    const videosWithThumbs = files.map((file) => {
-      const thumbPath = path.join(THUMBS_DIR, file.replace(".mp4", ".jpg"));
-      return {
-        filename: file,
-        thumbnail: fs.existsSync(thumbPath)
-          ? `/thumbnail/${file.replace(".mp4", ".jpg")}`
-          : null,
-      };
-    });
-
+    const files = fs
+      .readdirSync(UPLOADS_DIR)
+      .filter((f) => f.toLowerCase().endsWith(".mp4"));
     console.log("📁 found", files.length, "video files:", files);
-    res.json(videosWithThumbs);
+    res.json(files);
   } catch (error) {
     console.log("❌ error listing videos:", error.message);
-    res.status(500).json({ error: "error listing videos" });
+    res.status(500).json({ error: "Error listing videos" });
   }
-});
-
-// serve thumbnails
-app.get("/thumbnail/:filename", (req, res) => {
-  const thumbPath = path.join(__dirname, THUMBS_DIR, req.params.filename);
-
-  if (!fs.existsSync(thumbPath)) {
-    return res.status(404).send("thumbnail not found");
-  }
-
-  res.setHeader("Content-Type", "image/jpeg");
-  fs.createReadStream(thumbPath).pipe(res);
 });
 
 app.get("/video/:filename", (req, res) => {
   console.log("\n🎥 video stream request for:", req.params.filename);
-  const filePath = path.join(__dirname, UPLOADS_DIR, req.params.filename);
+  const filePath = path.join(UPLOADS_DIR, req.params.filename);
 
   if (!fs.existsSync(filePath)) {
     console.log("❌ video file not found:", filePath);
-    return res.status(404).send("video not found");
+    return res.status(404).send("Video not found");
   }
 
   const stat = fs.statSync(filePath);
@@ -471,19 +561,23 @@ app.get("/video/:filename", (req, res) => {
     const parts = range.replace(/bytes=/, "").split("-");
     const start = parseInt(parts[0], 10);
     const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+
+    if (start >= fileSize || end >= fileSize || start > end) {
+      console.log("❌ Invalid range request");
+      res.status(416).send("Requested Range Not Satisfiable");
+      return;
+    }
     const chunkSize = end - start + 1;
 
     console.log("📦 streaming chunk:", start, "-", end, "/", fileSize);
 
     const file = fs.createReadStream(filePath, { start, end });
-
     res.writeHead(206, {
       "Content-Range": `bytes ${start}-${end}/${fileSize}`,
       "Accept-Ranges": "bytes",
       "Content-Length": chunkSize,
       "Content-Type": "video/mp4",
     });
-
     file.pipe(res);
   } else {
     console.log("📦 streaming entire file");
@@ -491,36 +585,46 @@ app.get("/video/:filename", (req, res) => {
       "Content-Length": fileSize,
       "Content-Type": "video/mp4",
     });
-
     fs.createReadStream(filePath).pipe(res);
   }
 });
 
 app.post("/cleanup", authMiddleware, (req, res) => {
-  console.log("\n🧹 cleanup request");
+  console.log("\n🧹 cleanup request for TEMP_DIR");
+  let deletedCount = 0;
+  let failedCount = 0;
   try {
     const tempFiles = fs.readdirSync(TEMP_DIR);
     console.log("📁 found", tempFiles.length, "temp files:", tempFiles);
 
     tempFiles.forEach((file) => {
-      fs.unlinkSync(path.join(TEMP_DIR, file));
-      console.log("🗑️ deleted:", file);
+      try {
+        fs.unlinkSync(path.join(TEMP_DIR, file));
+        console.log("🗑️ deleted:", file);
+        deletedCount++;
+      } catch (unlinkErr) {
+        console.warn(
+          `⚠️ could not delete temp file: ${file}`,
+          unlinkErr.message
+        );
+        failedCount++;
+      }
     });
 
-    console.log("✅ cleanup completed");
-    res.json({ success: true, message: "temp files deleted" });
+    const message = `Temp files cleanup attempted. Deleted: ${deletedCount}, Failed: ${failedCount}.`;
+    console.log(`✅ ${message}`);
+    res.json({ success: true, message });
   } catch (error) {
     console.log("❌ cleanup error:", error.message);
     res
       .status(500)
-      .json({ success: false, error: "error cleaning temp files" });
+      .json({ success: false, error: "Error cleaning temp files" });
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 server running on http://localhost:${PORT}`);
-  console.log("📁 temp directory:", TEMP_DIR);
-  console.log("📁 uploads directory:", UPLOADS_DIR);
-  console.log("📁 thumbnails directory:", THUMBS_DIR);
-  console.log("🔐 password protection:", !!PASSWORD);
+  console.log(`🚀 Server running on http://localhost:${PORT}`);
+  console.log("📁 Temp directory:", path.resolve(TEMP_DIR));
+  console.log("📁 Uploads directory:", path.resolve(UPLOADS_DIR));
+  console.log("🔐 Password protection:", !!PASSWORD);
 });
