@@ -8,7 +8,7 @@ const EventEmitter = require("events");
 
 dotenv.config();
 const app = express();
-const PORT = 3000;
+const PORT = 80;
 const PASSWORD = process.env.MASTER_PASSWORD;
 
 app.use(express.urlencoded({ extended: true }));
