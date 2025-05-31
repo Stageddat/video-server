@@ -332,44 +332,34 @@ const streamVideo = (req, res) => {
     return res.status(404).send("Video not found");
   }
 
-  // Check if the request is from Discordbot
-  const userAgent = req.headers["user-agent"];
-  const isDiscordBot = userAgent && userAgent.includes("Discordbot");
+  const fileSize = getFileSize(filePath);
+  const range = req.headers.range;
 
-  if (isDiscordBot) {
-    // If Discordbot, serve the embed HTML
-    sendEmbedHtml(req, res, filename);
-  } else {
-    // Otherwise, stream the video file directly
-    const fileSize = getFileSize(filePath);
-    const range = req.headers.range;
+  if (range) {
+    const parts = range.replace(/bytes=/, "").split("-");
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
 
-    if (range) {
-      const parts = range.replace(/bytes=/, "").split("-");
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-
-      if (start >= fileSize || end >= fileSize || start > end) {
-        res.status(416).send("Requested Range Not Satisfiable");
-        return;
-      }
-      const chunkSize = end - start + 1;
-
-      const file = fs.createReadStream(filePath, { start, end });
-      res.writeHead(206, {
-        "Content-Range": `bytes ${start}-${end}/${fileSize}`,
-        "Accept-Ranges": "bytes",
-        "Content-Length": chunkSize,
-        "Content-Type": "video/mp4",
-      });
-      file.pipe(res);
-    } else {
-      res.writeHead(200, {
-        "Content-Length": fileSize,
-        "Content-Type": "video/mp4",
-      });
-      fs.createReadStream(filePath).pipe(res);
+    if (start >= fileSize || end >= fileSize || start > end) {
+      res.status(416).send("Requested Range Not Satisfiable");
+      return;
     }
+    const chunkSize = end - start + 1;
+
+    const file = fs.createReadStream(filePath, { start, end });
+    res.writeHead(206, {
+      "Content-Range": `bytes ${start}-${end}/${fileSize}`,
+      "Accept-Ranges": "bytes",
+      "Content-Length": chunkSize,
+      "Content-Type": "video/mp4",
+    });
+    file.pipe(res);
+  } else {
+    res.writeHead(200, {
+      "Content-Length": fileSize,
+      "Content-Type": "video/mp4",
+    });
+    fs.createReadStream(filePath).pipe(res);
   }
 };
 
