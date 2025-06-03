@@ -18,8 +18,8 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(express.static("public"));
 
-const videoRoutes = require("./routes/videoRoutes");
-const authRoutes = require("./routes/authRoutes");
+const videoRoutes = require("./src/routes/videoRoutes");
+const authRoutes = require("./src/routes/authRoutes");
 
 app.use("/", videoRoutes);
 app.use("/", authRoutes);

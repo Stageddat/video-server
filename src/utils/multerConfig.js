@@ -1,7 +1,6 @@
-// utils/multerConfig.js
 const multer = require("multer");
 const path = require("path");
-const { TEMP_DIR } = require("../config");
+const { TEMP_DIR } = require("../../config");
 
 const storage = multer.diskStorage({
   destination: TEMP_DIR,

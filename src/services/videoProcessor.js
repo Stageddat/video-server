@@ -3,7 +3,7 @@ const EventEmitter = require("events");
 const fs = require("fs");
 const path = require("path");
 const { safeUnlink } = require("./fileService");
-const { UPLOADS_DIR, THUMBNAILS_DIR } = require("../config");
+const { UPLOADS_DIR, THUMBNAILS_DIR } = require("../../config/index");
 
 const taskProgressEmitters = {};
 

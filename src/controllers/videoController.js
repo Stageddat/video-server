@@ -1,21 +1,24 @@
 const path = require("path");
 const fs = require("fs");
-const { UPLOADS_DIR, THUMBNAILS_DIR, TEMP_DIR } = require("../config");
+const {
+  UPLOADS_DIR,
+  THUMBNAILS_DIR,
+  TEMP_DIR,
+} = require("../../config/index.js");
 const {
   safeUnlink,
   renameFile,
   fileExists,
   getFileSize,
   readDir,
-} = require("../services/fileService");
+} = require("../services/fileService.js");
 const {
   processVideo,
   generateThumbnail,
   getTaskEventEmitter,
   cleanupTaskEmitter,
-} = require("../services/videoProcessor");
+} = require("../services/videoProcessor.js");
 
-// Function to find a unique filename by appending _X if it already exists
 const getUniqueFilename = (baseFilename, directory) => {
   let filename = baseFilename;
   let counter = 0;
@@ -40,29 +43,23 @@ const handleUpload = async (req, res) => {
 
   const rawTempFilePath = req.file.path;
   const originalFilename = req.file.originalname;
-  const customName = req.body.customName; // Get custom name from the form data
+  const customName = req.body.customName;
 
-  // Determine the final filename based on customName or originalFilename
   let desiredFilename;
   const fileExtension = path.extname(originalFilename) || ".mp4";
-  const originalNameWithoutExt = path.parse(originalFilename).name;
 
   if (customName) {
-    // Sanitize custom name: replace non-alphanumeric/dash/underscore/dot with underscore
     const sanitizedCustomName = customName
       .replace(/[^a-zA-Z0-9-_\s.]/g, "_")
       .trim();
-    // Ensure the final name has the correct extension
     desiredFilename = `${sanitizedCustomName.replace(
       new RegExp(`${fileExtension}$`, "i"),
       ""
     )}${fileExtension}`;
   } else {
-    // If no custom name, use the original filename directly.
     desiredFilename = originalFilename;
   }
 
-  // Ensure the final filename is unique in the UPLOADS_DIR
   const finalNameForUploads = getUniqueFilename(desiredFilename, UPLOADS_DIR);
 
   const taskId =
@@ -76,7 +73,6 @@ const handleUpload = async (req, res) => {
     try {
       renameFile(rawTempFilePath, finalUploadsPath);
 
-      // Generate thumbnail for direct upload
       const thumbnailName = finalNameForUploads.replace(/\.[^/.]+$/, ".jpg");
       const thumbnailPath = path.join(THUMBNAILS_DIR, thumbnailName);
 
@@ -121,13 +117,13 @@ const handleUpload = async (req, res) => {
     }
   } else {
     const processingFileExt = path.extname(originalFilename) || ".mp4";
-    const processingFileName = `processing_${taskId}${processingFileExt}`; // Temporary name during processing
+    const processingFileName = `processing_${taskId}${processingFileExt}`;
     const processingTempFilePath = path.join(TEMP_DIR, processingFileName);
 
     processVideo(
       rawTempFilePath,
       processingTempFilePath,
-      finalNameForUploads, // Pass the determined final unique name
+      finalNameForUploads,
       taskId
     ).catch((err) => {
       if (getTaskEventEmitter(taskId)) {
