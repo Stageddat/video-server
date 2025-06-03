@@ -1,36 +1,52 @@
 const express = require("express");
-const dotenv = require("dotenv");
+const cors = require("cors");
 const path = require("path");
-const fs = require("fs");
+const dotenv = require("dotenv");
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 7777;
 
-const { TEMP_DIR, UPLOADS_DIR, THUMBNAILS_DIR } = require("./config");
+const videoRoutes = require("./routes/videoRoutes");
+const authRoutes = require("./routes/authRoutes");
 
-if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR);
-if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR);
-if (!fs.existsSync(THUMBNAILS_DIR)) fs.mkdirSync(THUMBNAILS_DIR);
+// --- CORS ---
+const allowedOrigins = [
+  "http://localhost:7777",
+  "http://localhost",
+  "https://sumi.stageddat.dev",
+];
 
-app.use(express.urlencoded({ extended: true }));
+const corsOptions = {
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true,
+  optionsSuccessStatus: 204,
+};
+
+app.use(cors(corsOptions));
+
 app.use(express.json());
-app.use(express.static("public"));
+app.use(express.urlencoded({ extended: true }));
 
-const videoRoutes = require("./src/routes/videoRoutes");
-const authRoutes = require("./src/routes/authRoutes");
+app.use(express.static(path.join(__dirname, "public")));
 
-app.use("/", videoRoutes);
 app.use("/", authRoutes);
+app.use("/", videoRoutes);
 
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
+
+// Iniciar el servidor
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-  console.log("📁 Temp directory:", path.resolve(TEMP_DIR));
-  console.log("📁 Uploads directory:", path.resolve(UPLOADS_DIR));
-  console.log("📁 Thumbnails directory:", path.resolve(THUMBNAILS_DIR));
-  console.log(
-    "🔐 Password protection:",
-    !!process.env.MASTER_PASSWORD || !!process.env.SPECIAL_PASSWORD
-  );
+  console.log(`Server running on port ${PORT}`);
 });
