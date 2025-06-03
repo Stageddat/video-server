@@ -116,25 +116,99 @@ form.addEventListener("submit", async (e) => {
   }
 
   submitBtn.disabled = true;
-  submitBtn.innerHTML = "<span>⏳ Preparing...</span>";
+  submitBtn.innerHTML = "<span>⏳ Checking Auth...</span>"; // New status
   progressContainer.style.display = "block";
   progressBar.style.width = "0%";
   progressBar.style.background = "linear-gradient(90deg, #667eea, #764ba2)";
-  showStatus("Starting upload...", "processing");
+  showStatus("Checking authentication...", "processing"); // New status
   if (sseEventSource) sseEventSource.close(); // Close any existing SSE connection
 
+  // --- PASO DE VERIFICACIÓN PREVIA DE AUTENTICACIÓN ---
+  const authCheckXhr = new XMLHttpRequest();
+  authCheckXhr.open("GET", "/check-auth", true); // Endpoint para la verificación
+  authCheckXhr.setRequestHeader("Authorization", passwordInput.value);
+
+  authCheckXhr.onload = function () {
+    if (authCheckXhr.status === 200) {
+      // Autenticación exitosa, proceder con la carga del archivo
+      startFileUpload(file);
+    } else if (authCheckXhr.status === 401) {
+      try {
+        const response = JSON.parse(authCheckXhr.responseText);
+        if (response.error === "MISSING_PASSWORD")
+          handleAuthError("MISSING_PASSWORD", "🔒 Please enter a password");
+        else if (response.error === "WRONG_PASSWORD")
+          handleAuthError("WRONG_PASSWORD", "❌ Wrong password");
+        else handleAuthError("AUTH_ERROR", "🚫 Authentication error");
+      } catch (parseError) {
+        console.error(
+          "Auth check parse error:",
+          parseError,
+          "Response text:",
+          authCheckXhr.responseText
+        );
+        handleAuthError(
+          "AUTH_ERROR",
+          "🚫 Authentication error (response parse failed)"
+        );
+      }
+      showStatus("❌ Authentication failed", "error");
+      progressBar.style.background = "#ef4444";
+      resetFormState(); // Restablece el formulario ya que no se iniciará la carga
+    } else {
+      // Otro tipo de error en la verificación
+      showStatus(
+        `Error checking authentication: ${authCheckXhr.statusText}`,
+        "error"
+      );
+      showNotification(
+        `❌ Failed to check authentication: ${authCheckXhr.statusText}`,
+        true
+      );
+      progressBar.style.background = "#ef4444";
+      resetFormState();
+    }
+  };
+
+  authCheckXhr.onerror = function () {
+    showStatus("❌ Network error during authentication check", "error");
+    showNotification("🔌 Network error during authentication check", true);
+    progressBar.style.background = "#ef4444";
+    resetFormState();
+  };
+
+  authCheckXhr.send();
+});
+
+// Nueva función para encapsular la lógica de subida de archivos
+function startFileUpload(file) {
   const formData = new FormData();
   formData.append("video", file);
 
-  // Get custom name and append it to formData
   const customName = customNameInput.value.trim();
   if (customName) {
     formData.append("customName", customName);
   }
 
   const xhr = new XMLHttpRequest();
-  xhr.open("POST", "/upload", true);
+
+  let uploadUrl;
+  if (
+    window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1"
+  ) {
+    uploadUrl = "/upload"; // For local development
+  } else {
+    uploadUrl = "https://uploads.sumi.stageddat.dev/upload"; // For production
+  }
+
+  xhr.open("POST", uploadUrl, true);
+
   xhr.setRequestHeader("Authorization", passwordInput.value);
+
+  // Actualiza el estado y el botón para reflejar que la subida comienza
+  submitBtn.innerHTML = "<span>⏳ Uploading...</span>";
+  showStatus("Starting upload...", "processing");
 
   xhr.upload.onprogress = function (event) {
     if (event.lengthComputable) {
@@ -148,6 +222,8 @@ form.addEventListener("submit", async (e) => {
     try {
       const response = JSON.parse(xhr.responseText);
 
+      // La verificación de 401 aquí ya no debería ser el caso si la pre-verificación funcionó,
+      // pero se mantiene como un fallback robusto en caso de un error de token/sesión intermedio.
       if (xhr.status === 401) {
         if (response.error === "MISSING_PASSWORD")
           handleAuthError("MISSING_PASSWORD", "🔒 Please enter a password");
@@ -172,18 +248,16 @@ form.addEventListener("submit", async (e) => {
       }
 
       if (response.success && response.taskId) {
-        // If the file was moved directly (special password), just show success and reset
         if (response.message === "Upload received, file moved directly.") {
           showStatus("Upload complete. File moved directly.", "success");
           showNotification(`✅ ${response.message}`);
           progressBar.style.width = "100%";
           progressBar.style.background = "#22c55e";
-          await loadVideos(); // Reload videos to show the new one
+          await loadVideos();
           setTimeout(() => resetFormState(), 2000);
           return;
         }
 
-        // For normal processing, initialize SSE
         showStatus("Upload complete. Initializing processing...", "processing");
         progressBar.style.width = "100%";
 
@@ -225,7 +299,7 @@ form.addEventListener("submit", async (e) => {
             progressBar.style.width = "100%";
             progressBar.style.background = "#22c55e";
             sseEventSource.close();
-            loadVideos(); // Reload videos to show the new one
+            loadVideos();
             setTimeout(() => resetFormState(), 2000);
           } else if (progressData.stage === "error") {
             showStatus(
@@ -285,7 +359,7 @@ form.addEventListener("submit", async (e) => {
   };
 
   xhr.send(formData);
-});
+}
 
 // --- Video Management Functions ---
 async function deleteVideo(filename) {
@@ -409,18 +483,15 @@ async function loadVideos() {
       const thumbnailDiv = document.createElement("div");
       thumbnailDiv.className = "video-thumbnail";
 
-      // Create play overlay
       const playOverlay = document.createElement("div");
       playOverlay.className = "play-overlay";
       playOverlay.innerHTML = "▶️";
 
       if (video.thumbnail) {
-        // Show thumbnail image
         const thumbnailImg = document.createElement("img");
         thumbnailImg.src = `/thumbnail/${encodeURIComponent(video.thumbnail)}`;
         thumbnailImg.alt = `Thumbnail for ${video.filename}`;
         thumbnailImg.onerror = function () {
-          // Fallback if thumbnail fails to load
           this.style.display = "none";
           const placeholder = document.createElement("div");
           placeholder.className = "placeholder";
@@ -429,7 +500,6 @@ async function loadVideos() {
         };
         thumbnailDiv.appendChild(thumbnailImg);
       } else {
-        // Show placeholder
         const placeholder = document.createElement("div");
         placeholder.className = "placeholder";
         placeholder.textContent = "🎬";
@@ -449,7 +519,6 @@ async function loadVideos() {
 
       videoInfo.appendChild(videoLink);
 
-      // --- Action Buttons (New) ---
       const actionButtonsDiv = document.createElement("div");
       actionButtonsDiv.className = "video-actions";
 
@@ -458,7 +527,7 @@ async function loadVideos() {
       editBtn.innerHTML = "✏️ Edit";
       editBtn.title = "Rename Video";
       editBtn.onclick = (e) => {
-        e.stopPropagation(); // Prevent opening video link
+        e.stopPropagation();
         renameVideo(video.filename);
       };
 
@@ -467,18 +536,15 @@ async function loadVideos() {
       deleteBtn.innerHTML = "🗑️ Delete";
       deleteBtn.title = "Delete Video";
       deleteBtn.onclick = (e) => {
-        e.stopPropagation(); // Prevent opening video link
+        e.stopPropagation();
         deleteVideo(video.filename);
       };
 
       actionButtonsDiv.appendChild(editBtn);
       actionButtonsDiv.appendChild(deleteBtn);
       videoInfo.appendChild(actionButtonsDiv);
-      // --- End Action Buttons ---
 
-      // Make entire video item clickable
       videoItem.addEventListener("click", (e) => {
-        // Only open video if a button wasn't clicked
         if (!e.target.closest(".action-btn")) {
           videoLink.click();
         }
@@ -494,5 +560,4 @@ async function loadVideos() {
   }
 }
 
-// Load videos on page load
 loadVideos();

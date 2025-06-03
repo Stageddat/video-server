@@ -1,27 +1,32 @@
-const { MASTER_PASSWORD, SPECIAL_PASSWORD } = require("../config");
+const AUTH_PASSWORD = process.env.AUTH_PASSWORD;
+const SPECIAL_PASSWORD = process.env.SPECIAL_PASSWORD;
 
-function authMiddleware(req, res, next) {
-  const providedPassword = req.headers.authorization;
+const authMiddleware = (req, res, next) => {
+  const authHeader = req.headers["authorization"];
 
-  if (!providedPassword) {
+  if (!authHeader) {
     return res.status(401).json({
       success: false,
       error: "MISSING_PASSWORD",
-      message: "password required",
+      message: "Authorization header is missing.",
     });
   }
 
-  req.isSpecialPassword = providedPassword === SPECIAL_PASSWORD;
-
-  if (!req.isSpecialPassword && providedPassword !== MASTER_PASSWORD) {
-    return res.status(401).json({
-      success: false,
-      error: "WRONG_PASSWORD",
-      message: "wrong password",
-    });
+  if (authHeader !== AUTH_PASSWORD) {
+    if (authHeader === SPECIAL_PASSWORD) {
+      req.isSpecialPassword = true;
+      return next();
+    } else {
+      return res.status(401).json({
+        success: false,
+        error: "WRONG_PASSWORD",
+        message: "Incorrect password.",
+      });
+    }
   }
 
+  req.isSpecialPassword = false;
   next();
-}
+};
 
 module.exports = authMiddleware;

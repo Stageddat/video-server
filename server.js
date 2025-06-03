@@ -17,8 +17,12 @@ if (!fs.existsSync(THUMBNAILS_DIR)) fs.mkdirSync(THUMBNAILS_DIR);
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(express.static("public"));
+
 const videoRoutes = require("./routes/videoRoutes");
+const authRoutes = require("./routes/authRoutes");
+
 app.use("/", videoRoutes);
+app.use("/auth", authRoutes);
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
