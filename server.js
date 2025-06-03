@@ -1,5 +1,5 @@
-const express = require("express");
 const cors = require("cors");
+const express = require("express");
 const path = require("path");
 const dotenv = require("dotenv");
 
@@ -8,8 +8,8 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 7777;
 
-const videoRoutes = require("./routes/videoRoutes");
-const authRoutes = require("./routes/authRoutes");
+const videoRoutes = require("./src/routes/videoRoutes.js");
+const authRoutes = require("./src/routes/authRoutes.js");
 
 // --- CORS ---
 const allowedOrigins = [
