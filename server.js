@@ -22,7 +22,7 @@ const videoRoutes = require("./routes/videoRoutes");
 const authRoutes = require("./routes/authRoutes");
 
 app.use("/", videoRoutes);
-app.use("/auth", authRoutes);
+app.use("/", authRoutes);
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
