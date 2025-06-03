@@ -6,7 +6,7 @@ const fs = require("fs");
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 80;
+const PORT = process.env.PORT || 7777;
 
 const { TEMP_DIR, UPLOADS_DIR, THUMBNAILS_DIR } = require("./config");
 
