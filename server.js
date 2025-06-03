@@ -23,6 +23,7 @@ const corsOptions = {
     if (!origin || allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
+      console.log(`CORS blocked origin: ${origin}`);
       callback(new Error("Not allowed by CORS"));
     }
   },
@@ -42,11 +43,19 @@ app.use(express.static(path.join(__dirname, "public")));
 app.use("/", authRoutes);
 app.use("/", videoRoutes);
 
-app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "index.html"));
+app.use((req, res) => {
+  res.status(404).json({
+    error: "Route not found",
+    path: req.path,
+    method: req.method,
+  });
 });
 
-// Iniciar el servidor
+app.use((err, req, res, next) => {
+  console.error("Error:", err.message);
+  res.status(500).json({ error: "Internal server error" });
+});
+
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
