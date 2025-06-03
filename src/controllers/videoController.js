@@ -146,9 +146,9 @@ const handleUpload = async (req, res) => {
 
 const getProcessingStatus = (req, res) => {
   const { taskId } = req.params;
-
   const emitter = getTaskEventEmitter(taskId);
   if (!emitter) {
+    console.log(`[SSE] Task ${taskId} not found or already completed.`);
     return res
       .status(404)
       .json({ error: "Task not found or already completed." });
@@ -156,23 +156,60 @@ const getProcessingStatus = (req, res) => {
 
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
-    "Cache-Control": "no-cache",
+    "Cache-Control": "no-cache, no-store, must-revalidate",
     Connection: "keep-alive",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Cache-Control",
+
+    "X-Accel-Buffering": "no",
+    "X-Content-Type-Options": "nosniff",
+    Pragma: "no-cache",
+    Expires: "0",
+    "Transfer-Encoding": "chunked",
+    "Content-Encoding": "identity",
   });
-  res.write("\n");
+
+  res.write(": connected\n\n");
+  if (res.flush) res.flush();
+
+  res.write("retry: 1000\n\n");
+  if (res.flush) res.flush();
+
+  console.log(
+    `[SSE] Client connected for task ${taskId}. Sending initial status.`
+  );
+
+  const initialData = {
+    stage: "started",
+    progress: 0,
+    message: "Processing started.",
+  };
+  res.write(`data: ${JSON.stringify(initialData)}\n\n`);
+  if (res.flush) res.flush();
+
+  const heartbeatInterval = setInterval(() => {
+    console.log(`[SSE] Sending heartbeat for task ${taskId}.`);
+    res.write(`: heartbeat ${Date.now()}\n\n`);
+    if (res.flush) res.flush();
+  }, 5000);
 
   const onProgress = (data) => {
+    console.log(`[SSE] Task ${taskId} progress: ${JSON.stringify(data)}`);
     res.write(`data: ${JSON.stringify(data)}\n\n`);
+    if (res.flush) res.flush();
   };
 
   const onDone = (data) => {
+    console.log(`[SSE] Task ${taskId} done: ${JSON.stringify(data)}`);
     const responseData = {
       ...data,
       stage: "done",
       skippedProcessing: data.skippedProcessing || false,
     };
     res.write(`data: ${JSON.stringify(responseData)}\n\n`);
+    if (res.flush) res.flush();
     res.end();
+    clearInterval(heartbeatInterval);
     cleanupTaskEmitter(taskId, {
       progress: onProgress,
       done: onDone,
@@ -181,8 +218,11 @@ const getProcessingStatus = (req, res) => {
   };
 
   const onError = (data) => {
+    console.error(`[SSE] Task ${taskId} error: ${JSON.stringify(data)}`);
     res.write(`data: ${JSON.stringify({ ...data, stage: "error" })}\n\n`);
+    if (res.flush) res.flush();
     res.end();
+    clearInterval(heartbeatInterval);
     cleanupTaskEmitter(taskId, {
       progress: onProgress,
       done: onDone,
@@ -195,6 +235,8 @@ const getProcessingStatus = (req, res) => {
   emitter.on("error", onError);
 
   req.on("close", () => {
+    console.log(`[SSE] Client disconnected for task ${taskId}. Cleaning up.`);
+    clearInterval(heartbeatInterval);
     cleanupTaskEmitter(taskId, {
       progress: onProgress,
       done: onDone,
@@ -222,17 +264,12 @@ const listVideos = (req, res) => {
   }
 };
 
-/**
- * Generates and sends the HTML for Discord video embeds.
- * This function is used by both streamVideo (if Discordbot) and the dedicated /embedVideo route.
- */
 const sendEmbedHtml = (req, res, filename) => {
   const videoPathInUploads = path.join(UPLOADS_DIR, filename);
   if (!fileExists(videoPathInUploads)) {
     return res.status(404).send("Video not found.");
   }
 
-  // Construct full URLs for video and thumbnail
   const baseUrl = `${req.protocol}://${req.get("host")}`;
   const videoUrl = `${baseUrl}/video/${encodeURIComponent(filename)}`;
   const thumbnailName = filename.replace(/\.[^/.]+$/, ".jpg");
@@ -240,9 +277,8 @@ const sendEmbedHtml = (req, res, filename) => {
     thumbnailName
   )}`;
 
-  // Basic dimensions for the video embed.
-  const videoWidth = 1280; // Placeholder, ideally get actual video dimensions
-  const videoHeight = 720; // Placeholder, ideally get actual video dimensions
+  const videoWidth = 1280;
+  const videoHeight = 720;
   const embedTitle = `Video: ${filename}`;
   const embedDescription = `Reproducir ${filename}`;
 
@@ -254,7 +290,7 @@ const sendEmbedHtml = (req, res, filename) => {
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>${embedTitle}</title>
-        <meta property="og:site_name" content="Tu Plataforma de Videos">
+        <meta property="og:site_name" content="video hosting">
         <meta property="og:title" content="${embedTitle}">
         <meta property="og:description" content="${embedDescription}">
         <meta property="og:type" content="video.movie">
@@ -277,9 +313,9 @@ const sendEmbedHtml = (req, res, filename) => {
         <meta name="twitter:player" content="${videoUrl}">
         <meta name="twitter:player:width" content="${videoWidth}">
         <meta name="twitter:player:height" content="${videoHeight}">
-        <meta name="twitter:app:name:iphone" content="Tu Plataforma de Videos">
-        <meta name="twitter:app:name:ipad" content="Tu Plataforma de Videos">
-        <meta name="twitter:app:name:googleplay" content="Tu Plataforma de Videos">
+        <meta name="twitter:app:name:iphone" content="video hosting">
+        <meta name="twitter:app:name:ipad" content="video hosting">
+        <meta name="twitter:app:name:googleplay" content="video hosting">
 
         <style>
             body {
@@ -317,9 +353,6 @@ const sendEmbedHtml = (req, res, filename) => {
   `);
 };
 
-/**
- * Streams the video file directly or serves an embed HTML page if requested by Discord.
- */
 const streamVideo = (req, res) => {
   const { filename } = req.params;
   const filePath = path.join(UPLOADS_DIR, filename);
@@ -359,10 +392,6 @@ const streamVideo = (req, res) => {
   }
 };
 
-/**
- * Renders an HTML page with Open Graph meta tags for Discord video embeds.
- * This is the dedicated endpoint for embeds.
- */
 const embedVideo = (req, res) => {
   const { filename } = req.query;
 
@@ -372,9 +401,6 @@ const embedVideo = (req, res) => {
   sendEmbedHtml(req, res, filename);
 };
 
-/**
- * Deletes a video file and its corresponding thumbnail.
- */
 const deleteVideo = (req, res) => {
   const { filename } = req.params;
   const videoPath = path.join(UPLOADS_DIR, filename);
@@ -404,11 +430,8 @@ const deleteVideo = (req, res) => {
   }
 };
 
-/**
- * Renames a video file and its corresponding thumbnail.
- */
 const renameVideo = (req, res) => {
-  const { originalFilename, newName } = req.body; // originalFilename is the current name, newName is the desired new name
+  const { originalFilename, newName } = req.body;
 
   if (!originalFilename || !newName) {
     return res.status(400).json({
@@ -425,21 +448,18 @@ const renameVideo = (req, res) => {
   }
 
   const fileExtension = path.extname(originalFilename) || ".mp4";
-  // Sanitize new name and ensure it has the correct extension
   const sanitizedNewName = newName.replace(/[^a-zA-Z0-9-_\s.]/g, "_").trim();
   let desiredNewFilename = `${sanitizedNewName.replace(
     new RegExp(`${fileExtension}$`, "i"),
     ""
   )}${fileExtension}`;
 
-  // Get a unique filename in case the desired new name already exists
   const finalNewFilename = getUniqueFilename(desiredNewFilename, UPLOADS_DIR);
   const newPath = path.join(UPLOADS_DIR, finalNewFilename);
 
   try {
     renameFile(oldPath, newPath);
 
-    // Rename thumbnail if exists
     const oldThumbName = originalFilename.replace(/\.[^/.]+$/, ".jpg");
     const newThumbName = finalNewFilename.replace(/\.[^/.]+$/, ".jpg");
     const oldThumbPath = path.join(THUMBNAILS_DIR, oldThumbName);
@@ -450,7 +470,6 @@ const renameVideo = (req, res) => {
         renameFile(oldThumbPath, newThumbPath);
       } catch (thumbError) {
         console.error("Thumbnail rename error:", thumbError);
-        // Do not fail the main video rename if thumbnail rename fails
       }
     }
 
