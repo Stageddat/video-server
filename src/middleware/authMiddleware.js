@@ -1,4 +1,4 @@
-const AUTH_PASSWORD = process.env.AUTH_PASSWORD;
+const MASTER_PASSWORD = process.env.MASTER_PASSWORD;
 const SPECIAL_PASSWORD = process.env.SPECIAL_PASSWORD;
 
 const authMiddleware = (req, res, next) => {
@@ -12,7 +12,7 @@ const authMiddleware = (req, res, next) => {
     });
   }
 
-  if (authHeader !== AUTH_PASSWORD) {
+  if (authHeader !== MASTER_PASSWORD) {
     if (authHeader === SPECIAL_PASSWORD) {
       req.isSpecialPassword = true;
       return next();
