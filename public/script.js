@@ -7,11 +7,11 @@ const notification = document.getElementById("notification");
 const status = document.getElementById("status");
 const submitBtn = document.getElementById("submitBtn");
 const videoFileInput = document.getElementById("videoFile");
-const videoListContainer = document.getElementById("videoList"); // Get the video list container
+const videoListContainer = document.getElementById("videoList");
+const dropZone = document.getElementById("dropZone"); // New: Drop zone element
+const dropZoneText = document.getElementById("dropZoneText"); // New: Text inside drop zone
+const selectedFileNameSpan = document.getElementById("selectedFileName"); // New: Span for selected file name
 
-let sseEventSource = null;
-
-// --- Modal Elements (New) ---
 const modal = document.createElement("div");
 modal.id = "customModal";
 modal.className = "modal-overlay";
@@ -32,7 +32,8 @@ const modalInput = document.getElementById("modalInput");
 const modalConfirmBtn = document.getElementById("modalConfirmBtn");
 const modalCancelBtn = document.getElementById("modalCancelBtn");
 
-// --- Helper Functions ---
+let sseEventSource = null;
+
 function handleAuthError(errorType, message) {
   passwordInput.classList.remove("input-error");
   passwordInput.classList.add("input-error");
@@ -44,13 +45,16 @@ function handleAuthError(errorType, message) {
 
 function resetFormState() {
   submitBtn.disabled = false;
-  submitBtn.innerHTML = "<span>📤 Upload Video</span>";
+  submitBtn.innerHTML =
+    '<i class="fas fa-upload"></i> <span>Upload Video</span>';
   progressBar.style.width = "0%";
   progressBar.style.background = "linear-gradient(90deg, #667eea, #764ba2)";
   progressContainer.style.display = "none";
   hideStatus();
   form.reset();
-  customNameInput.value = ""; // Clear custom name input
+  customNameInput.value = "";
+  selectedFileNameSpan.textContent = ""; // Clear selected file name
+  dropZone.classList.remove("file-selected"); // Remove file selected class
   if (sseEventSource) {
     sseEventSource.close();
     sseEventSource = null;
@@ -83,7 +87,6 @@ function showNotification(msg, isError = false, errorType = null) {
   }, 5000);
 }
 
-// --- Modal Functions ---
 function showModal(message, showInputField = false, defaultValue = "") {
   modalMessage.textContent = message;
   if (showInputField) {
@@ -106,7 +109,38 @@ function showModal(message, showInputField = false, defaultValue = "") {
   });
 }
 
-// --- Event Listeners ---
+// --- Drag and Drop functionality ---
+dropZone.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  dropZone.classList.add("drag-over");
+});
+
+dropZone.addEventListener("dragleave", () => {
+  dropZone.classList.remove("drag-over");
+});
+
+dropZone.addEventListener("drop", (e) => {
+  e.preventDefault();
+  dropZone.classList.remove("drag-over");
+  const files = e.dataTransfer.files;
+  if (files.length > 0) {
+    videoFileInput.files = files;
+    selectedFileNameSpan.textContent = files[0].name;
+    dropZone.classList.add("file-selected");
+  }
+});
+
+// Update selected file name when file input changes
+videoFileInput.addEventListener("change", () => {
+  if (videoFileInput.files.length > 0) {
+    selectedFileNameSpan.textContent = videoFileInput.files[0].name;
+    dropZone.classList.add("file-selected");
+  } else {
+    selectedFileNameSpan.textContent = "";
+    dropZone.classList.remove("file-selected");
+  }
+});
+
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
   const file = videoFileInput.files[0];
@@ -116,21 +150,20 @@ form.addEventListener("submit", async (e) => {
   }
 
   submitBtn.disabled = true;
-  submitBtn.innerHTML = "<span>⏳ Checking Auth...</span>"; // New status
+  submitBtn.innerHTML =
+    '<span><i class="fas fa-circle-notch fa-spin"></i> Checking Auth...</span>';
   progressContainer.style.display = "block";
   progressBar.style.width = "0%";
   progressBar.style.background = "linear-gradient(90deg, #667eea, #764ba2)";
-  showStatus("Checking authentication...", "processing"); // New status
-  if (sseEventSource) sseEventSource.close(); // Close any existing SSE connection
+  showStatus("Checking authentication...", "processing");
+  if (sseEventSource) sseEventSource.close();
 
-  // --- PASO DE VERIFICACIÓN PREVIA DE AUTENTICACIÓN ---
   const authCheckXhr = new XMLHttpRequest();
-  authCheckXhr.open("GET", "/check-auth", true); // Endpoint para la verificación
+  authCheckXhr.open("GET", "/check-auth", true);
   authCheckXhr.setRequestHeader("Authorization", passwordInput.value);
 
   authCheckXhr.onload = function () {
     if (authCheckXhr.status === 200) {
-      // Autenticación exitosa, proceder con la carga del archivo
       startFileUpload(file);
     } else if (authCheckXhr.status === 401) {
       try {
@@ -154,9 +187,8 @@ form.addEventListener("submit", async (e) => {
       }
       showStatus("❌ Authentication failed", "error");
       progressBar.style.background = "#ef4444";
-      resetFormState(); // Restablece el formulario ya que no se iniciará la carga
+      resetFormState();
     } else {
-      // Otro tipo de error en la verificación
       showStatus(
         `Error checking authentication: ${authCheckXhr.statusText}`,
         "error"
@@ -180,7 +212,6 @@ form.addEventListener("submit", async (e) => {
   authCheckXhr.send();
 });
 
-// Nueva función para encapsular la lógica de subida de archivos
 function startFileUpload(file) {
   const formData = new FormData();
   formData.append("video", file);
@@ -197,17 +228,17 @@ function startFileUpload(file) {
     window.location.hostname === "localhost" ||
     window.location.hostname === "127.0.0.1"
   ) {
-    uploadUrl = "/upload"; // For local development
+    uploadUrl = "/upload";
   } else {
-    uploadUrl = "https://uploads.sumi.stageddat.dev/upload"; // For production
+    uploadUrl = "https://uploads.sumi.stageddat.dev/upload";
   }
 
   xhr.open("POST", uploadUrl, true);
 
   xhr.setRequestHeader("Authorization", passwordInput.value);
 
-  // Actualiza el estado y el botón para reflejar que la subida comienza
-  submitBtn.innerHTML = "<span>⏳ Uploading...</span>";
+  submitBtn.innerHTML =
+    '<span><i class="fas fa-cloud-upload-alt"></i> Uploading...</span>';
   showStatus("Starting upload...", "processing");
 
   xhr.upload.onprogress = function (event) {
@@ -222,8 +253,6 @@ function startFileUpload(file) {
     try {
       const response = JSON.parse(xhr.responseText);
 
-      // La verificación de 401 aquí ya no debería ser el caso si la pre-verificación funcionó,
-      // pero se mantiene como un fallback robusto en caso de un error de token/sesión intermedio.
       if (xhr.status === 401) {
         if (response.error === "MISSING_PASSWORD")
           handleAuthError("MISSING_PASSWORD", "🔒 Please enter a password");
@@ -235,7 +264,8 @@ function startFileUpload(file) {
         resetFormState();
         passwordInput.value = xhr.status === 401 ? "" : passwordInput.value;
         submitBtn.disabled = false;
-        submitBtn.innerHTML = "<span>📤 Upload Video</span>";
+        submitBtn.innerHTML =
+          '<i class="fas fa-upload"></i> <span>Upload Video</span>';
         return;
       }
 
@@ -361,7 +391,6 @@ function startFileUpload(file) {
   xhr.send(formData);
 }
 
-// --- Video Management Functions ---
 async function deleteVideo(filename) {
   const confirmed = await showModal(
     `Are you sure you want to delete '${filename}'? This action cannot be undone.`
@@ -389,7 +418,7 @@ async function deleteVideo(filename) {
     if (response.success) {
       showNotification(`✅ ${response.message}`);
       showStatus(`'${filename}' deleted.`, "success");
-      loadVideos(); // Reload the list
+      loadVideos();
     } else {
       showNotification(`❌ Error deleting video: ${response.message}`, true);
       showStatus(`❌ Deletion failed: ${response.message}`, "error");
@@ -445,7 +474,7 @@ async function renameVideo(originalFilename) {
         `'${originalFilename}' renamed to '${response.newFilename}'.`,
         "success"
       );
-      loadVideos(); // Reload the list
+      loadVideos();
     } else {
       showNotification(`❌ Error renaming video: ${response.message}`, true);
       showStatus(`❌ Rename failed: ${response.message}`, "error");
@@ -470,7 +499,7 @@ async function loadVideos() {
 
     if (videos.length === 0) {
       container.innerHTML =
-        '<div class="no-videos">📂 No videos uploaded yet</div>';
+        '<div class="no-videos"><i class="fas fa-folder-open"></i> No videos uploaded yet</div>';
       return;
     }
 
@@ -485,7 +514,7 @@ async function loadVideos() {
 
       const playOverlay = document.createElement("div");
       playOverlay.className = "play-overlay";
-      playOverlay.innerHTML = "▶️";
+      playOverlay.innerHTML = '<i class="fas fa-play"></i>'; // Font Awesome play icon
 
       if (video.thumbnail) {
         const thumbnailImg = document.createElement("img");
@@ -495,14 +524,14 @@ async function loadVideos() {
           this.style.display = "none";
           const placeholder = document.createElement("div");
           placeholder.className = "placeholder";
-          placeholder.textContent = "🎬";
+          placeholder.innerHTML = '<i class="fas fa-video"></i>'; // Font Awesome video icon
           thumbnailDiv.appendChild(placeholder);
         };
         thumbnailDiv.appendChild(thumbnailImg);
       } else {
         const placeholder = document.createElement("div");
         placeholder.className = "placeholder";
-        placeholder.textContent = "🎬";
+        placeholder.innerHTML = '<i class="fas fa-video"></i>'; // Font Awesome video icon
         thumbnailDiv.appendChild(placeholder);
       }
 
@@ -524,7 +553,7 @@ async function loadVideos() {
 
       const editBtn = document.createElement("button");
       editBtn.className = "action-btn edit-btn";
-      editBtn.innerHTML = "✏️ Edit";
+      editBtn.innerHTML = '<i class="fas fa-edit"></i> Edit'; // Font Awesome edit icon
       editBtn.title = "Rename Video";
       editBtn.onclick = (e) => {
         e.stopPropagation();
@@ -533,7 +562,7 @@ async function loadVideos() {
 
       const deleteBtn = document.createElement("button");
       deleteBtn.className = "action-btn delete-btn";
-      deleteBtn.innerHTML = "🗑️ Delete";
+      deleteBtn.innerHTML = '<i class="fas fa-trash-alt"></i> Delete'; // Font Awesome delete icon
       deleteBtn.title = "Delete Video";
       deleteBtn.onclick = (e) => {
         e.stopPropagation();

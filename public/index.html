@@ -5,43 +5,66 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Video Hosting</title>
     <link rel="stylesheet" href="style.css" />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"
+    />
   </head>
   <body>
     <div class="container">
-      <h1>🎥 Video Hosting</h1>
+      <h1>Video Hosting</h1>
 
       <div id="notification"></div>
 
       <form id="uploadForm">
-        <input
-          type="password"
-          id="password"
-          placeholder="🔐 Enter Password"
-          required
-        />
-        <input
-          type="file"
-          name="video"
-          id="videoFile"
-          accept="video/*"
-          required
-        />
-        <input
-          type="text"
-          id="customName"
-          placeholder="📝 Custom name (optional)"
-        />
+        <div class="input-group">
+          <i class="fas fa-lock icon"></i>
+          <input
+            type="password"
+            id="password"
+            placeholder="Enter Password"
+            required
+          />
+        </div>
+
+        <div id="dropZone" class="drop-zone">
+          <input
+            type="file"
+            name="video"
+            id="videoFile"
+            accept="video/*"
+            hidden
+          />
+          <label for="videoFile" class="drop-zone-label">
+            <i class="fas fa-cloud-upload-alt icon"></i>
+            <span id="dropZoneText"
+              >Drag & drop your video here or click to browse</span
+            >
+            <span id="selectedFileName" class="selected-file-name"></span>
+          </label>
+        </div>
+
+        <div class="input-group">
+          <i class="fas fa-tag icon"></i>
+          <input
+            type="text"
+            id="customName"
+            placeholder="Custom name (optional)"
+          />
+        </div>
+
         <div id="status"></div>
         <div id="progress-container" style="display: none">
           <div id="progress-bar"></div>
         </div>
         <button type="submit" id="submitBtn">
-          <span>📤 Upload Video</span>
+          <i class="fas fa-upload"></i>
+          <span>Upload Video</span>
         </button>
       </form>
 
       <div id="videos">
-        <h2>📹 My Videos</h2>
+        <h2>My Videos</h2>
         <div id="videoList"></div>
       </div>
     </div>
