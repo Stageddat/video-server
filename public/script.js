@@ -234,7 +234,6 @@ function startFileUpload(file) {
   }
 
   xhr.open("POST", uploadUrl, true);
-
   xhr.setRequestHeader("Authorization", passwordInput.value);
 
   submitBtn.innerHTML =
@@ -291,72 +290,136 @@ function startFileUpload(file) {
         showStatus("Upload complete. Initializing processing...", "processing");
         progressBar.style.width = "100%";
 
-        sseEventSource = new EventSource(
-          `/processing-status/${response.taskId}`
-        );
+        let sseUrl;
+        if (
+          window.location.hostname === "localhost" ||
+          window.location.hostname === "127.0.0.1"
+        ) {
+          sseUrl = `/processing-status/${response.taskId}`;
+        } else {
+          sseUrl = `https://sumi.stageddat.dev/processing-status/${response.taskId}`;
+        }
 
-        sseEventSource.onmessage = function (event) {
-          const progressData = JSON.parse(event.data);
+        //console.log(`[DEBUG] Connecting to SSE: ${sseUrl}`);
+        sseEventSource = new EventSource(sseUrl);
 
-          if (progressData.stage === "probing") {
-            showStatus(
-              progressData.message || "Analyzing video...",
-              "processing"
-            );
-            progressBar.style.width = "0%";
-          } else if (progressData.stage === "probed_success") {
-            showStatus(
-              progressData.message ||
-                "Analysis complete. Starting conversion...",
-              "processing"
-            );
-            progressBar.style.width = "0%";
-          } else if (progressData.stage === "processing") {
-            progressBar.style.width = (progressData.percent || 0) + "%";
-            showStatus(
-              progressData.message ||
-                `Processing... ${progressData.percent || 0}%`,
-              "processing"
-            );
-          } else if (progressData.stage === "done") {
-            showStatus(
-              progressData.message || "Video processed successfully!",
-              "success"
-            );
-            showNotification(
-              `✅ ${progressData.message || "Video processed successfully!"}`
-            );
-            progressBar.style.width = "100%";
-            progressBar.style.background = "#22c55e";
+        const sseTimeout = setTimeout(() => {
+          if (
+            sseEventSource &&
+            sseEventSource.readyState !== EventSource.CLOSED
+          ) {
+            console.error("[SSE] Connection timeout after 30 seconds");
             sseEventSource.close();
-            loadVideos();
-            setTimeout(() => resetFormState(), 2000);
-          } else if (progressData.stage === "error") {
             showStatus(
-              `Error: ${progressData.error || "Processing failed"}`,
-              "error"
+              "⚠️ Status connection timeout. Processing may still be running.",
+              "processing"
             );
             showNotification(
-              `❌ ${
-                progressData.error || "An error occurred during processing."
-              }`,
+              "⚠️ Lost connection to processing status. Please refresh to check if video completed.",
               true
             );
-            progressBar.style.background = "#ef4444";
-            sseEventSource.close();
-            resetFormState();
+          }
+        }, 30000);
+
+        sseEventSource.onopen = function () {
+          //console.log("[SSE] Connection opened successfully");
+          clearTimeout(sseTimeout);
+        };
+
+        sseEventSource.onmessage = function (event) {
+          //console.log("[SSE] Message received:", event.data);
+          try {
+            const progressData = JSON.parse(event.data);
+
+            if (progressData.stage === "started") {
+              showStatus("Processing started...", "processing");
+            } else if (progressData.stage === "probing") {
+              showStatus(
+                progressData.message || "Analyzing video...",
+                "processing"
+              );
+              progressBar.style.width = "0%";
+            } else if (progressData.stage === "probed_success") {
+              showStatus(
+                progressData.message ||
+                  "Analysis complete. Starting conversion...",
+                "processing"
+              );
+              progressBar.style.width = "0%";
+            } else if (progressData.stage === "processing") {
+              progressBar.style.width = (progressData.percent || 0) + "%";
+              showStatus(
+                progressData.message ||
+                  `Processing... ${progressData.percent || 0}%`,
+                "processing"
+              );
+            } else if (progressData.stage === "done") {
+              clearTimeout(sseTimeout);
+              showStatus(
+                progressData.message || "Video processed successfully!",
+                "success"
+              );
+              showNotification(
+                `✅ ${progressData.message || "Video processed successfully!"}`
+              );
+              progressBar.style.width = "100%";
+              progressBar.style.background = "#22c55e";
+              sseEventSource.close();
+              loadVideos();
+              setTimeout(() => resetFormState(), 2000);
+            } else if (progressData.stage === "error") {
+              clearTimeout(sseTimeout);
+              showStatus(
+                `Error: ${progressData.error || "Processing failed"}`,
+                "error"
+              );
+              showNotification(
+                `❌ ${
+                  progressData.error || "An error occurred during processing."
+                }`,
+                true
+              );
+              progressBar.style.background = "#ef4444";
+              sseEventSource.close();
+              resetFormState();
+            }
+          } catch (parseError) {
+            console.error(
+              "[SSE] Error parsing message:",
+              parseError,
+              event.data
+            );
           }
         };
 
-        sseEventSource.onerror = function () {
-          showStatus("Error connecting to processing status updates.", "error");
-          showNotification(
-            "🔌 Connection error with server for status updates.",
-            true
-          );
-          progressBar.style.background = "#ef4444";
-          sseEventSource.close();
-          resetFormState();
+        sseEventSource.onerror = function (event) {
+          clearTimeout(sseTimeout);
+          console.error("[SSE] Connection error:", event);
+
+          // Check if this is a connection issue or server issue
+          if (sseEventSource.readyState === EventSource.CONNECTING) {
+            showStatus("⚠️ Reconnecting to processing status...", "processing");
+          } else {
+            showStatus("⚠️ Lost connection to processing status", "processing");
+            showNotification(
+              "⚠️ Connection lost. Processing may still be running. Please refresh to check status.",
+              true
+            );
+            sseEventSource.close();
+
+            // Don't reset form state immediately - give user chance to refresh
+            setTimeout(() => {
+              if (
+                confirm(
+                  "Processing status connection lost. Would you like to refresh the page to check if your video completed?"
+                )
+              ) {
+                window.location.reload();
+              } else {
+                resetFormState();
+              }
+            }, 3000);
+          }
         };
       } else {
         showStatus("Error: Could not initialize video processing.", "error");
