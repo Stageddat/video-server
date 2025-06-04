@@ -2,11 +2,12 @@ const cors = require("cors");
 const express = require("express");
 const path = require("path");
 const dotenv = require("dotenv");
+const config = require("./config/index.js");
+const { clearTempDir } = require("./src/services/fileService.js");
 
 dotenv.config();
-
 const app = express();
-const PORT = process.env.PORT || 7777;
+const PORT = process.env.PORT || config.PORT;
 
 const videoRoutes = require("./src/routes/videoRoutes.js");
 const authRoutes = require("./src/routes/authRoutes.js");
@@ -59,4 +60,5 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
+  clearTempDir();
 });
