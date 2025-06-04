@@ -41,7 +41,7 @@ async function generateThumbnail(videoPath, outputPath, taskId) {
 async function processVideo(
   rawTempFilePath,
   processingTempFilePath,
-  finalFilename, // This is now the desired final name for the uploaded file
+  finalFilename,
   taskId
 ) {
   const emitter = taskProgressEmitters[taskId];
